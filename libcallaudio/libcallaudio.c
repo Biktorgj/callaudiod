@@ -129,6 +129,7 @@ static void select_mode_done(GObject *object, GAsyncResult *result, gpointer dat
     gboolean success = FALSE;
     gboolean ret;
 
+    g_return_if_fail(_initted);
     g_return_if_fail(CALL_AUDIO_DBUS_IS_CALL_AUDIO(proxy));
 
     ret = call_audio_dbus_call_audio_call_select_mode_finish(proxy, &success,
@@ -152,8 +153,7 @@ static void select_mode_done(GObject *object, GAsyncResult *result, gpointer dat
  */
 gboolean call_audio_select_mode_async(CallAudioMode mode, CallAudioCallback cb)
 {
-    if (!_initted)
-        return FALSE;
+    g_return_val_if_fail(_initted, FALSE);
 
     call_audio_dbus_call_audio_call_select_mode(_proxy, mode, NULL,
                                                 select_mode_done, cb);
@@ -175,8 +175,7 @@ gboolean call_audio_select_mode(CallAudioMode mode, GError **error)
     gboolean success = FALSE;
     gboolean ret;
 
-    if (!_initted)
-        return FALSE;
+    g_return_val_if_fail(_initted, FALSE);
 
     ret = call_audio_dbus_call_audio_call_select_mode_sync(_proxy, mode, &success,
                                                            NULL, error);
@@ -196,6 +195,7 @@ static void enable_speaker_done(GObject *object, GAsyncResult *result, gpointer 
     gboolean success = FALSE;
     gboolean ret;
 
+    g_return_if_fail(_initted);
     g_return_if_fail(CALL_AUDIO_DBUS_IS_CALL_AUDIO(proxy));
 
     ret = call_audio_dbus_call_audio_call_enable_speaker_finish(proxy, &success,
@@ -219,8 +219,7 @@ static void enable_speaker_done(GObject *object, GAsyncResult *result, gpointer 
  */
 gboolean call_audio_enable_speaker_async(gboolean enable, CallAudioCallback cb)
 {
-    if (!_initted)
-        return FALSE;
+    g_return_val_if_fail(_initted,FALSE);
 
     call_audio_dbus_call_audio_call_enable_speaker(_proxy, enable, NULL,
                                                    enable_speaker_done, cb);
@@ -242,8 +241,7 @@ gboolean call_audio_enable_speaker(gboolean enable, GError **error)
     gboolean success = FALSE;
     gboolean ret;
 
-    if (!_initted)
-        return FALSE;
+    g_return_val_if_fail(_initted, FALSE);
 
     ret = call_audio_dbus_call_audio_call_enable_speaker_sync(_proxy, enable, &success,
                                                               NULL, error);
@@ -263,6 +261,7 @@ static void mute_mic_done(GObject *object, GAsyncResult *result, gpointer data)
     gboolean success = 0;
     gboolean ret;
 
+    g_return_if_fail(_initted);
     g_return_if_fail(CALL_AUDIO_DBUS_IS_CALL_AUDIO(proxy));
 
     ret = call_audio_dbus_call_audio_call_mute_mic_finish(proxy, &success,
@@ -285,8 +284,7 @@ static void mute_mic_done(GObject *object, GAsyncResult *result, gpointer data)
  */
 gboolean call_audio_mute_mic_async(gboolean mute, CallAudioCallback cb)
 {
-    if (!_initted)
-        return FALSE;
+    g_return_val_if_fail(_initted, FALSE);
 
     call_audio_dbus_call_audio_call_mute_mic(_proxy, mute, NULL,
                                              mute_mic_done, cb);
@@ -308,8 +306,7 @@ gboolean call_audio_mute_mic(gboolean mute, GError **error)
     gboolean success = FALSE;
     gboolean ret;
 
-    if (!_initted)
-        return FALSE;
+    g_return_val_if_fail(_initted, FALSE);
 
     ret = call_audio_dbus_call_audio_call_mute_mic_sync(_proxy, mute, &success,
                                                         NULL, error);
