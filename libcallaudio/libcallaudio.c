@@ -37,7 +37,7 @@
 
 static CallAudioDbusCallAudio *_proxy;
 static gboolean               _initted;
-static guint                  _watch_dbus;
+static guint                  _watch_dbus = 0;
 
 #define N_RETRIES 3
 
