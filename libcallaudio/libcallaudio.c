@@ -37,6 +37,35 @@
 
 static CallAudioDbusCallAudio *_proxy;
 static gboolean               _initted;
+static guint                  _watch_dbus;
+
+#define N_RETRIES 3
+
+static void dbus_watch_name_appeared(GDBusConnection *connection,
+                                     const gchar     *name,
+                                     const gchar     *name_owner,
+                                     gpointer         user_data);
+
+static void dbus_watch_name_vanished(GDBusConnection *connection,
+                                     const gchar     *name,
+                                     gpointer         user_data);
+
+static gboolean call_audio_do_init(GError **error)
+{
+    if (_initted)
+        return TRUE;
+
+    _proxy = call_audio_dbus_call_audio_proxy_new_for_bus_sync(
+                                                             CALLAUDIO_DBUS_TYPE,0, CALLAUDIO_DBUS_NAME,
+                                                             CALLAUDIO_DBUS_PATH, NULL, error);
+    if (!_proxy)
+        return FALSE;
+
+    g_object_add_weak_pointer(G_OBJECT(_proxy), (gpointer *)&_proxy);
+
+    _initted = TRUE;
+    return TRUE;
+}
 
 /**
  * call_audio_init:
@@ -48,19 +77,14 @@ static gboolean               _initted;
  */
 gboolean call_audio_init(GError **error)
 {
-    if (_initted)
-        return TRUE;
+    gboolean success = call_audio_do_init(error);
+    _watch_dbus = g_bus_watch_name(CALLAUDIO_DBUS_TYPE, CALLAUDIO_DBUS_NAME,
+                                   G_BUS_NAME_WATCHER_FLAGS_NONE,
+                                   dbus_watch_name_appeared,
+                                   dbus_watch_name_vanished,
+                                   NULL, NULL);
 
-    _proxy = call_audio_dbus_call_audio_proxy_new_for_bus_sync(
-                                    CALLAUDIO_DBUS_TYPE,0, CALLAUDIO_DBUS_NAME,
-                                    CALLAUDIO_DBUS_PATH, NULL, error);
-    if (!_proxy)
-        return FALSE;
-
-    g_object_add_weak_pointer(G_OBJECT(_proxy), (gpointer *)&_proxy);
-
-    _initted = TRUE;
-    return TRUE;
+    return success;
 }
 
 /**
@@ -76,6 +100,12 @@ gboolean call_audio_is_inited(void)
     return _initted;
 }
 
+static void call_audio_reset(void)
+{
+    _initted = FALSE;
+    g_clear_object(&_proxy);
+    _proxy = NULL;
+}
 /**
  * call_audio_deinit:
  *
@@ -84,8 +114,11 @@ gboolean call_audio_is_inited(void)
  */
 void call_audio_deinit(void)
 {
-    _initted = FALSE;
-    g_clear_object(&_proxy);
+    call_audio_reset();
+    g_return_if_fail (_watch_dbus == 0);
+
+    g_bus_unwatch_name(_watch_dbus);
+    _watch_dbus = 0;
 }
 
 static void select_mode_done(GObject *object, GAsyncResult *result, gpointer data)
@@ -286,4 +319,29 @@ gboolean call_audio_mute_mic(gboolean mute, GError **error)
     g_debug("MuteMic %s: success=%d", ret ? "succeeded" : "failed", success);
 
     return (ret && success);
+}
+
+/* DBus watching */
+static void dbus_watch_name_appeared(GDBusConnection *connection,
+                                     const gchar     *name,
+                                     const gchar     *name_owner,
+                                     gpointer         user_data)
+{
+    g_autoptr (GError) error = NULL;
+
+    g_assert (!_initted);
+    g_assert(!_proxy);
+
+    call_audio_do_init(&error);
+}
+
+static void dbus_watch_name_vanished(GDBusConnection *connection,
+                                     const gchar     *name,
+                                     gpointer         user_data)
+{
+    g_assert(_initted);
+    g_assert(_proxy);
+
+    call_audio_reset();
+    /* TODO try to reactivate callaudiod somehow (for N_RETRIES)*/
 }
