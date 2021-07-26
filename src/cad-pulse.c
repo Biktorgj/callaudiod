@@ -35,10 +35,13 @@ struct _CadPulse
     pa_glib_mainloop  *loop;
     pa_context        *ctx;
 
+    snd_use_case_mgr_t *ucm;
+
     int card_id;
     int sink_id;
     int source_id;
 
+    gchar *card_name;
     gboolean has_voice_profile;
     gchar *speaker_port;
 
@@ -357,6 +360,7 @@ static void init_card_info(pa_context *ctx, const pa_card_info *info, int eol, v
     CadPulse *self = data;
     const gchar *prop;
     guint i;
+    int err;
 
     if (eol != 0)
         return;
@@ -377,6 +381,10 @@ static void init_card_info(pa_context *ctx, const pa_card_info *info, int eol, v
         return;
 
     self->card_id = info->index;
+    self->card_name = g_strdup_printf("hw:%s", pa_proplist_gets(info->proplist, "alsa.card"));
+    err = snd_use_case_mgr_open(&self->ucm, pa_proplist_gets(info->proplist, "alsa.card_name"));
+    if (err < 0)
+        g_warning("Unable to open UCM for card '%s'", self->card_name);
 
     g_debug("CARD: idx=%u name='%s'", info->index, info->name);
 
@@ -385,6 +393,8 @@ static void init_card_info(pa_context *ctx, const pa_card_info *info, int eol, v
 
         if (strstr(profile->name, SND_USE_CASE_VERB_VOICECALL) != NULL) {
             self->has_voice_profile = TRUE;
+            if (info->active_profile2 == profile)
+                self->current_mode = CALL_AUDIO_MODE_CALL;
             break;
         }
     }
@@ -640,12 +650,12 @@ static void operation_complete_cb(pa_context *ctx, int success, void *data)
     if (operation) {
         if (operation->op) {
             operation->op->success = (gboolean)!!success;
-            operation->op->callback(operation->op);
-
             if (operation->op->type == CAD_OPERATION_SELECT_MODE &&
                 operation->op->success) {
                 operation->pulse->current_mode = operation->value;
             }
+
+            operation->op->callback(operation->op);
         }
 
         free(operation);
@@ -750,6 +760,76 @@ static void set_output_port(pa_context *ctx, const pa_sink_info *info, int eol, 
     }
 }
 
+static void mute_using_ucm(CadPulse *self, const pa_source_info *info, guint value)
+{
+    char *profile_name;
+    char *port_name;
+    char *ucm_query;
+    const char *ctl_name;
+    int err;
+    guint i;
+    snd_ctl_t *ctl;
+    snd_ctl_elem_id_t *ctl_id;
+    snd_ctl_elem_info_t *ctl_info;
+    snd_ctl_elem_value_t *ctl_value;
+    // Those allocate data on the stack
+    snd_ctl_elem_id_alloca(&ctl_id);
+    snd_ctl_elem_info_alloca(&ctl_info);
+    snd_ctl_elem_value_alloca(&ctl_value);
+
+    if (self->has_voice_profile && self->current_mode == CALL_AUDIO_MODE_CALL)
+        profile_name = SND_USE_CASE_VERB_VOICECALL;
+    else
+        profile_name = SND_USE_CASE_VERB_HIFI;
+
+    // PulseAudio prefixes the UCM device name with "[In] " (5 chars long)
+    port_name = g_strdup(info->active_port->name + 5);
+
+    ucm_query = snd_use_case_identifier("=CaptureSwitch/%s/%s", port_name, profile_name);
+    err = snd_use_case_get(self->ucm, ucm_query, &ctl_name);
+    if (err < 0) {
+        g_warning("Unable to get CaptureSwitch from UCM (%s)", ucm_query);
+        return;
+    }
+    free(ucm_query);
+
+    // Populate the ctl_id
+    err = snd_use_case_parse_ctl_elem_id(ctl_id, "CaptureSwitch", ctl_name);
+    if (err < 0) {
+        g_warning("Unable to parse CaptureSwitch '%s'", ctl_name);
+        return;
+    }
+
+    err = snd_ctl_open(&ctl, self->card_name, 0);
+    if (err < 0) {
+        g_warning("Unable to open control for card '%s'", self->card_name);
+        return;
+    }
+
+    // Retrieve full information about the control so we can change its value
+    snd_ctl_elem_info_set_id(ctl_info, ctl_id);
+    err = snd_ctl_elem_info(ctl, ctl_info);
+    if (err < 0) {
+        g_warning("Unable to get control info for '%s'", ctl_name);
+        snd_ctl_close(ctl);
+        return;
+    }
+    snd_ctl_elem_info_get_id(ctl_info, ctl_id);
+    snd_ctl_elem_value_set_id(ctl_value, ctl_id);
+
+    // Set value for all channels
+    for (i = 0; i < info->channel_map.channels; i++)
+        snd_ctl_elem_value_set_boolean(ctl_value, i, value);
+
+    // Write to the actual hardware control
+    err = snd_ctl_elem_write(ctl, ctl_value);
+    if (err < 0) {
+        g_warning("Unable to set value %u for '%s'", value, ctl_name);
+    }
+
+    snd_ctl_close(ctl);
+}
+
 static void set_mic_mute(pa_context *ctx, const pa_source_info *info, int eol, void *data)
 {
     CadPulseOperation *operation = data;
@@ -775,6 +855,7 @@ static void set_mic_mute(pa_context *ctx, const pa_source_info *info, int eol, v
         op = pa_context_set_source_mute_by_index(ctx, operation->pulse->source_id, 1,
                                                  operation_complete_cb, operation);
     }
+    mute_using_ucm(operation->pulse, info, !operation->value);
 
     if (op) {
         pa_operation_unref(op);
