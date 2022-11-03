@@ -11,13 +11,9 @@
 #include "cad-pulse.h"
 
 #include "libcallaudio.h"
-
+#include "udev.h"
 #include <gio/gio.h>
 #include <glib-unix.h>
-
-typedef struct _CadManager {
-    CallAudioDbusCallAudioSkeleton parent;
-} CadManager;
 
 static void cad_manager_call_audio_iface_init(CallAudioDbusCallAudioIface *iface);
 
@@ -41,6 +37,9 @@ static void complete_command_cb(CadOperation *op)
             break;
         case CAD_OPERATION_MUTE_MIC:
             call_audio_dbus_call_audio_complete_mute_mic(op->object, op->invocation, op->success);
+            break;
+        case CAD_OPERATION_SWITCH_BT_AUDIO:
+            call_audio_dbus_call_audio_complete_bt_audio(op->object, op->invocation, op->success);
             break;
         default:
             g_critical("unknown operation %d", op->type);
@@ -190,7 +189,23 @@ CadManager *cad_manager_get_default(void)
         g_debug("initializing manager...");
         manager = g_object_new(CAD_TYPE_MANAGER, NULL);
         g_object_add_weak_pointer(G_OBJECT(manager), (gpointer *)&manager);
+        udev_init(manager);
     }
 
     return manager;
+}
+
+gboolean scan_bt_devices(CadManager *manager, guint reason) {
+    g_message("Bluetooth rescan triggered");
+    if (reason == 1) {
+        g_message("New bluetooth device connected");
+    } else {
+        g_message("Bluetooth device disconnected");
+    }
+    /*
+     * We need to query here all pulseaudio cards
+     * that are using the bluez module. We should
+     * do this in cad_pulse
+     */
+    return G_SOURCE_REMOVE;
 }

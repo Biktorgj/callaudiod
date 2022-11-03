@@ -51,6 +51,7 @@ struct _CadPulse
     CallAudioMode audio_mode;
     CallAudioSpeakerState speaker_state;
     CallAudioMicState mic_state;
+    CallAudioBluetoothState bt_audio;
 };
 
 G_DEFINE_TYPE(CadPulse, cad_pulse, G_TYPE_OBJECT);
@@ -801,6 +802,20 @@ static void operation_complete_cb(pa_context *ctx, int success, void *data)
                         g_object_set(operation->pulse->manager, "mic-state", new_value, NULL);
                     }
                     break;
+                case CAD_OPERATION_SWITCH_BT_AUDIO:
+                    /*
+                     * "Switch to bluetooth" depends on a couple of things:
+                     *  1. udev has previously reported that a bluetooth device
+                     * has been added.
+                     *  2. The device has been queried from pulseaudio and it's an
+                     * audio device that can serve both as a sink and a source
+                     *
+                     */
+                    if (operation->pulse->bt_audio > 0 &&
+                        operation->pulse->bt_audio != new_value) {
+                        operation->pulse->bt_audio = new_value;
+                        g_object_set(operation->pulse->manager, "bt-audio", new_value, NULL);
+                    }
                 default:
                     break;
                 }
