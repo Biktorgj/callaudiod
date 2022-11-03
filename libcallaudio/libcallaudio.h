@@ -54,6 +54,13 @@ typedef enum {
   CALL_AUDIO_MIC_UNKNOWN = 255
 } CallAudioMicState;
 
+typedef enum {
+  CALL_AUDIO_BT_UNAVAILABLE = 0,
+  CALL_AUDIO_BT_AVAILABLE,
+  CALL_AUDIO_BT_ENABLED,
+  CALL_AUDIO_BT_UNKNOWN = 255
+} CallAudioBluetoothState;
+
 typedef void (*CallAudioCallback)(gboolean success,
                                   GError *error,
                                   gpointer data);
@@ -75,9 +82,14 @@ gboolean call_audio_enable_speaker_async(gboolean          enable,
 CallAudioSpeakerState call_audio_get_speaker_state(void);
 
 gboolean call_audio_mute_mic      (gboolean mute, GError **error);
-gboolean call_audio_mute_mic_async(gboolean          mute,
+gboolean call_audio_mute_mic_async(gboolean          enable,
                                    CallAudioCallback cb,
                                    gpointer          data);
 CallAudioMicState call_audio_get_mic_state(void);
-
+/* Bluetooth */
+gboolean call_audio_bt_audio    (gboolean mute, GError **error);
+gboolean call_audio_bt_audio_async(gboolean          enable,
+                                   CallAudioCallback cb,
+                                   gpointer          data);
+CallAudioBluetoothState call_audio_get_bt_audio_state(void);
 G_END_DECLS

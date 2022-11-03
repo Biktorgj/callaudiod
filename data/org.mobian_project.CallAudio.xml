@@ -55,5 +55,17 @@
         all other values should be considered the same as 'unknown'
     -->
     <property name="MicState" type="u" access="read"/>
+    
+    <method name="BtAudio">
+      <arg direction="in" name="enable" type="b"/>
+      <arg direction="out" name="success" type="b"/>
+    </method>
+
+    <!--
+        BtAudioState:
+        0 = off, 1 = available, 2 = enabled, 255 = unknown
+        all other values should be considered the same as 'unknown'
+    -->
+    <property name="BtAudioState" type="u" access="read"/>
   </interface>
 </node>
