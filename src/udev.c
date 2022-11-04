@@ -17,14 +17,13 @@ static void udev_event_cb(GUdevClient *client, gchar *action, GUdevDevice *devic
          * Modem is probably executing a FW upgrade, make sure we don't interrupt it
          */
         g_message("Bluetooth device added: %s:",g_udev_device_get_name(device));
-        scan_bt_devices(manager, 0);
     } else if (strcmp(action, "removed") != 0) {
         g_message("Bluetooth device removed: %s", g_udev_device_get_name(device));
-        scan_bt_devices(manager, 1);
     } else {
         g_message("Bluetooth device change, unknown action %s", action);
-        scan_bt_devices(manager, 2);
     }
+    /* We wait for a few seconds to give time to PA to populate the card */
+    g_timeout_add_seconds(5, G_SOURCE_FUNC(scan_bt_devices), manager);
     return;
 }
 
