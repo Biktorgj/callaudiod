@@ -27,6 +27,8 @@
 #define CARD_FORM_FACTOR "internal"
 #define CARD_MODEM_CLASS "modem"
 #define CARD_MODEM_NAME "Modem"
+#define PA_BT_DRIVER "module-bluez5-device.c"
+#define PA_BT_PREFERRED_PROFILE "handsfree_head_unit"
 
 struct _CadPulse
 {
@@ -40,6 +42,10 @@ struct _CadPulse
     int card_id;
     int sink_id;
     int source_id;
+
+    int external_card_id;
+    gchar *external_card_name;
+    gboolean external_card_connected;
 
     gboolean has_voice_profile;
     gchar *speaker_port;
@@ -481,7 +487,6 @@ static void init_card_info(pa_context *ctx, const pa_card_info *info, int eol, v
             has_earpiece = TRUE;
         }
     }
-
     if (!has_speaker || !has_earpiece) {
         g_message("Card '%s' lacks speaker and/or earpiece port, skipping...",
                   info->name);
@@ -1123,3 +1128,109 @@ CallAudioMicState cad_pulse_get_mic_state(void)
     CadPulse *self = cad_pulse_get_default();
     return self->mic_state;
 }
+
+CallAudioBluetoothState cad_pulse_get_bt_audio_state(void) 
+{
+    CadPulse *self = cad_pulse_get_default();
+    return self->bt_audio;
+}
+
+void cad_pulse_enable_bt_audio(gboolean enable, CadOperation *cad_op)
+{
+    CadPulseOperation *operation = g_new(CadPulseOperation, 1);
+    pa_operation *op = NULL;
+
+    if (!cad_op) {
+        g_critical("%s: no callaudiod operation", __func__);
+        goto error;
+    }
+
+    /*
+     * Make sure cad_op is of the correct type!
+     */
+    g_assert(cad_op->type == CAD_OPERATION_SWITCH_BT_AUDIO);
+
+    operation->pulse = cad_pulse_get_default();
+
+    if (operation->pulse->sink_id < 0) {
+        g_warning("card has no usable sink");
+        goto error;
+    }
+
+    operation->op = cad_op;
+    operation->value = (guint)enable;
+
+    op = pa_context_get_sink_info_by_index(operation->pulse->ctx,
+                                           operation->pulse->sink_id,
+                                           set_output_port, operation);
+    if (op)
+        pa_operation_unref(op);
+
+    return;
+
+error:
+    if (cad_op) {
+        cad_op->success = FALSE;
+        if (cad_op->callback)
+            cad_op->callback(cad_op);
+    }
+    if (operation)
+        free(operation);
+}
+
+static void get_card_info_callback(pa_context *c, const pa_card_info *info, int is_last, void *data) {
+    CadPulse *self = data;
+    int i;
+    if (is_last < 0) {
+        g_message("Failed to get card information: %s", pa_strerror(pa_context_errno(c)));
+        return;
+    }
+
+    if (is_last) {
+        g_message("Is last card!");
+        return;
+    }
+    g_message("%u: %s using %s\n", info->index, info->name, info->driver);
+    /* Check the driver used by PulseAudio, and try to match the available
+       profiles. We could modify this to allow for USB-C headsets, but 
+       I don't have any to try */
+    if (strcmp(info->driver, PA_BT_DRIVER) == 0) {
+        g_message("We got a bluetooth audio device!");
+    for (i = 0; i < info->n_profiles; i++) {
+        pa_card_profile_info2 *profile = info->profiles2[i];
+        if (strstr(profile->name, PA_BT_PREFERRED_PROFILE) != NULL) {
+           g_message("%s has a headset profile, making it available", info->name);
+           self->external_card_id = info->index;
+           self->external_card_name =  g_strdup(info->name);
+           self->bt_audio = 1; // AVAILABLE
+           self->external_card_connected = TRUE;
+        }
+    }
+    }
+
+}
+
+/* TODO: We need to cleanup after ourselves too... */
+gboolean cad_pulse_find_bt_audio_capabilities(void) 
+{
+    CadPulse *self = cad_pulse_get_default();
+    pa_operation *op;
+
+    g_message("Scan bluetooth devices with audio support as headset");
+   // op = pa_context_get_card_info_list(self->ctx, search_alternative_cards, self);
+    op = pa_context_get_card_info_list(self->ctx, get_card_info_callback, self);
+    if (op)
+        pa_operation_unref(op);
+
+    if (self->external_card_connected) {
+        g_message("External card config updated!");
+        self->external_card_connected = FALSE;
+        /* TODO: If in-call, automatically trigger the profile change */
+    } else {
+        g_message("No external cards found");
+        self->bt_audio = 0;
+        self->external_card_id = -1;
+    }
+    return G_SOURCE_REMOVE;
+}
+
