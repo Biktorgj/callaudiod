@@ -163,6 +163,40 @@ cad_manager_get_mic_state(CallAudioDbusCallAudio *object)
     return cad_pulse_get_mic_state();
 }
 
+
+static gboolean cad_manager_handle_switch_bt_audio(CallAudioDbusCallAudio *object,
+                                                  GDBusMethodInvocation *invocation,
+                                                  gboolean enable)
+{
+    CadOperation *op;
+
+    op = g_new(CadOperation, 1);
+    if (!op) {
+        g_critical("Unable to allocate memory for speaker operation");
+        g_dbus_method_invocation_return_error(invocation, G_DBUS_ERROR,
+                                              G_DBUS_ERROR_NO_MEMORY,
+                                              "Failed to allocate operation");
+        return FALSE;
+    }
+
+    op->type = CAD_OPERATION_SWITCH_BT_AUDIO;
+    op->value = GUINT_TO_POINTER(enable ? CALL_AUDIO_SPEAKER_ON : CALL_AUDIO_SPEAKER_OFF);
+    op->object = object;
+    op->invocation = invocation;
+    op->callback = complete_command_cb;
+
+    g_message("Enable BT audio: %d", enable);
+    cad_pulse_enable_bt_audio(enable, op);
+
+    return TRUE;
+}
+
+static CallAudioBluetoothState
+cad_manager_get_bt_audio_state(CallAudioDbusCallAudio *object)
+{
+    return cad_pulse_get_bt_audio_state();
+}
+
 static void cad_manager_call_audio_iface_init(CallAudioDbusCallAudioIface *iface)
 {
     iface->handle_select_mode = cad_manager_handle_select_mode;
@@ -171,6 +205,8 @@ static void cad_manager_call_audio_iface_init(CallAudioDbusCallAudioIface *iface
     iface->get_speaker_state = cad_manager_get_speaker_state;
     iface->handle_mute_mic = cad_manager_handle_mute_mic;
     iface->get_mic_state = cad_manager_get_mic_state;
+    iface->handle_bt_audio = cad_manager_handle_switch_bt_audio;
+    iface->get_bt_audio_state = cad_manager_get_bt_audio_state;
 }
 
 static void cad_manager_class_init(CadManagerClass *klass)
@@ -195,13 +231,14 @@ CadManager *cad_manager_get_default(void)
     return manager;
 }
 
-gboolean scan_bt_devices(CadManager *manager, guint reason) {
+gboolean scan_bt_devices(CadManager *manager)
+{
+    guint ret;
+
     g_message("Bluetooth rescan triggered");
-    if (reason == 1) {
-        g_message("New bluetooth device connected");
-    } else {
-        g_message("Bluetooth device disconnected");
-    }
+
+    ret = cad_pulse_find_bt_audio_capabilities();
+    g_message("Find audio returned %i", ret);
     /*
      * We need to query here all pulseaudio cards
      * that are using the bluez module. We should

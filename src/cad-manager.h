@@ -8,7 +8,6 @@
 
 #include "callaudio-dbus.h"
 
-#include "cad-operation.h"
 #include <glib-object.h>
 #include <gudev/gudev.h>
 
@@ -26,5 +25,5 @@ G_DECLARE_FINAL_TYPE(CadManager, cad_manager, CAD, MANAGER,
 
 CadManager *cad_manager_get_default(void);
 
-gboolean scan_bt_devices(CadManager *manager, guint reason);
+gboolean scan_bt_devices(CadManager *manager);
 G_END_DECLS
