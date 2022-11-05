@@ -29,7 +29,7 @@
 #define CARD_MODEM_NAME "Modem"
 #define PA_BT_DRIVER "module-bluez5-device.c"
 #define PA_BT_PREFERRED_PROFILE "handsfree_head_unit"
-
+#define PA_BT_PREFERRED_PORT "Bluetooth"
 struct _CadPulse
 {
     GObject parent_instance;
@@ -44,6 +44,9 @@ struct _CadPulse
     int source_id;
 
     int external_card_id;
+    int external_sink_id;
+    int external_source_id;
+    int external_established_loopback;
     gchar *external_card_name;
     gboolean external_card_connected;
 
@@ -220,6 +223,10 @@ static void init_source_info(pa_context *ctx, const pa_source_info *info, int eo
         if (op)
             pa_operation_unref(op);
     }
+
+    self->bt_audio = 0;
+    g_object_set(self->manager, "bt-audio", self->bt_audio, NULL);
+
 }
 
 /******************************************************************************
@@ -559,6 +566,7 @@ static gboolean init_pulseaudio_objects(CadPulse *self)
     pa_operation *op;
 
     self->card_id = self->sink_id = self->source_id = -1;
+    self->external_card_id = self->external_sink_id = self->external_source_id = -1;
     self->sink_ports = self->source_ports = NULL;
 
     op = pa_context_get_card_info_list(self->ctx, init_card_info, self);
@@ -1135,11 +1143,34 @@ CallAudioBluetoothState cad_pulse_get_bt_audio_state(void)
     return self->bt_audio;
 }
 
+static void unload_loopback_callback(pa_context *ctx, const pa_module_info *info, int eol, void *data)
+{
+    pa_operation *op = NULL;
+
+    if (eol != 0)
+        return;
+
+    if (!info) {
+        g_critical("PA returned no sink info (eol=%d)", eol);
+        return;
+    }
+    // This is horrible, but as stated... YOLO!!
+
+    if (strcmp(info->name, "module-loopback") == 0) {
+        g_message("Unloading '%s'", info->name);
+        op = pa_context_unload_module(ctx, info->index, NULL, NULL);
+        if (op)
+            pa_operation_unref(op);
+    }
+    return;
+}
+
+/* Pieces shamelessly stolen from wys */
 void cad_pulse_enable_bt_audio(gboolean enable, CadOperation *cad_op)
 {
     CadPulseOperation *operation = g_new(CadPulseOperation, 1);
     pa_operation *op = NULL;
-
+    gchar *loopback_bt_source_arg, *loopback_int_source_arg;
     if (!cad_op) {
         g_critical("%s: no callaudiod operation", __func__);
         goto error;
@@ -1153,19 +1184,89 @@ void cad_pulse_enable_bt_audio(gboolean enable, CadOperation *cad_op)
     operation->pulse = cad_pulse_get_default();
 
     if (operation->pulse->sink_id < 0) {
-        g_warning("card has no usable sink");
+        g_warning("Audio isn't even ready yet");
         goto error;
     }
 
+    if (enable && operation->pulse->external_card_id < 0) {
+        g_warning("No bluetooth adapter connected");
+        goto error;
+    }
+
+    if (enable && (operation->pulse->external_sink_id < 0 ||
+         operation->pulse->external_source_id < 0)) {
+            g_warning("Bluetooth adapter has no sink or source");
+            goto error;
+    }
     operation->op = cad_op;
     operation->value = (guint)enable;
+    g_message("Requested Bluetooth switch, enable %u", enable);
+    /* TODO: Check if we're actually in call */
 
-    op = pa_context_get_sink_info_by_index(operation->pulse->ctx,
+    /* If card is correct and everything is ready,
+        1. Switch to handsfree in the bluetooth device (external_card_id)
+        2. Switch to Bluetooth device in the main card
+        3. Establish the loopback config
+    */
+
+    /* YOLO */
+    // Switch to headset profile in bluetooth
+    if (enable) {
+    op = pa_context_set_card_profile_by_index(operation->pulse->ctx, operation->pulse->external_card_id,
+                                                     PA_BT_PREFERRED_PROFILE,
+                                                  operation_complete_cb, operation);
+    if (op)
+        pa_operation_unref(op);
+
+    // Switch the sink port in the main card to Bluetooth        
+    op = pa_context_set_sink_port_by_index(operation->pulse->ctx, operation->pulse->sink_id,
+                                                PA_BT_PREFERRED_PORT, NULL, NULL);
+    if (op)
+        pa_operation_unref(op);
+
+    // Switch the source port in the main card to Bluetooth                        
+    op = pa_context_set_source_port_by_index(operation->pulse->ctx, operation->pulse->source_id,
+                                                PA_BT_PREFERRED_PORT, NULL, NULL);
+    if (op)
+        pa_operation_unref(op);
+
+    /* Need to do it twice */
+    // It's peanut-butter-loopback time
+    loopback_bt_source_arg = g_strdup_printf("source=%i sink=%i", operation->pulse->external_source_id, operation->pulse->sink_id); 
+    loopback_int_source_arg = g_strdup_printf("source=%i sink=%i", operation->pulse->source_id, operation->pulse->external_sink_id); 
+    g_message("From BT to alsa: %s", loopback_bt_source_arg);
+    g_message("From Alsa to BT: %s", loopback_int_source_arg);
+
+    op = pa_context_load_module (operation->pulse->ctx,
+                            "module-loopback",
+                            loopback_bt_source_arg,
+                            NULL,
+                            NULL);
+    if (op)
+        pa_operation_unref(op);
+    // Last one we report... I totally shouldn't be doing this
+    op = pa_context_load_module (operation->pulse->ctx,
+                            "module-loopback",
+                            loopback_bt_source_arg,
+                            NULL,
+                            NULL);
+    if (op)
+        pa_operation_unref(op);
+    } else {
+        //    op = pa_context_get_module_info_list(self->ctx, init_module_info, self);
+
+        op = pa_context_get_module_info_list(operation->pulse->ctx, unload_loopback_callback, NULL);
+        if (op)
+            pa_operation_unref(op);
+    }
+
+    operation_complete_cb(operation->pulse->ctx, 1, operation);
+/*    op = pa_context_get_sink_info_by_index(operation->pulse->ctx,
                                            operation->pulse->sink_id,
                                            set_output_port, operation);
     if (op)
         pa_operation_unref(op);
-
+*/
     return;
 
 error:
@@ -1177,9 +1278,39 @@ error:
     if (operation)
         free(operation);
 }
+static void get_source_id_callback(pa_context *ctx, const pa_source_info *info, int eol, void *data)
+{
+    CadPulse *self = data;
+
+    if (eol != 0)
+        return;
+
+    if (!info) {
+        g_critical("PA returned no source info (eol=%d)", eol);
+        return;
+    }
+    self->external_source_id = info->index;
+    return;
+}
+
+static void get_sink_id_callback(pa_context *ctx, const pa_sink_info *info, int eol, void *data)
+{
+    CadPulse *self = data;
+
+    if (eol != 0)
+        return;
+
+    if (!info) {
+        g_critical("PA returned no sink info (eol=%d)", eol);
+        return;
+    }
+    self->external_sink_id = info->index;
+    return;
+}
 
 static void get_card_info_callback(pa_context *c, const pa_card_info *info, int is_last, void *data) {
     CadPulse *self = data;
+    pa_operation *op;
     int i;
     if (is_last < 0) {
         g_message("Failed to get card information: %s", pa_strerror(pa_context_errno(c)));
@@ -1196,16 +1327,25 @@ static void get_card_info_callback(pa_context *c, const pa_card_info *info, int 
        I don't have any to try */
     if (strcmp(info->driver, PA_BT_DRIVER) == 0) {
         g_message("We got a bluetooth audio device!");
-    for (i = 0; i < info->n_profiles; i++) {
-        pa_card_profile_info2 *profile = info->profiles2[i];
-        if (strstr(profile->name, PA_BT_PREFERRED_PROFILE) != NULL) {
-           g_message("%s has a headset profile, making it available", info->name);
-           self->external_card_id = info->index;
-           self->external_card_name =  g_strdup(info->name);
-           self->bt_audio = 1; // AVAILABLE
-           self->external_card_connected = TRUE;
+        // Find the sink and source ports
+        op = pa_context_get_sink_info_list(c, get_sink_id_callback, self);
+        if (op)
+            pa_operation_unref(op);
+            
+        op = pa_context_get_source_info_list(c, get_source_id_callback, self);
+        if (op)
+        pa_operation_unref(op);
+
+        for (i = 0; i < info->n_profiles; i++) {
+            pa_card_profile_info2 *profile = info->profiles2[i];
+            if (strstr(profile->name, PA_BT_PREFERRED_PROFILE) != NULL) {
+            g_message("%s has a headset profile, making it available", info->name);
+            self->external_card_id = info->index;
+            self->external_card_name =  g_strdup(info->name);
+            self->bt_audio = 1; // AVAILABLE
+            self->external_card_connected = TRUE;
+            }
         }
-    }
     }
 
 }
@@ -1230,6 +1370,8 @@ gboolean cad_pulse_find_bt_audio_capabilities(void)
         g_message("No external cards found");
         self->bt_audio = 0;
         self->external_card_id = -1;
+        self->external_source_id = -1;
+        self->external_sink_id = -1;
     }
     return G_SOURCE_REMOVE;
 }
