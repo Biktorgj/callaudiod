@@ -226,6 +226,7 @@ CadManager *cad_manager_get_default(void)
         manager = g_object_new(CAD_TYPE_MANAGER, NULL);
         g_object_add_weak_pointer(G_OBJECT(manager), (gpointer *)&manager);
         udev_init(manager);
+        scan_bt_devices(manager);
     }
 
     return manager;
