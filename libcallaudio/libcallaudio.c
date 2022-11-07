@@ -369,7 +369,6 @@ CallAudioMicState call_audio_get_mic_state(void)
     return call_audio_dbus_call_audio_get_mic_state(_proxy);
 }
 
-
 static void bt_audio_done(GObject *object, GAsyncResult *result, gpointer data)
 {
     CallAudioDbusCallAudio *proxy = CALL_AUDIO_DBUS_CALL_AUDIO(object);
@@ -394,12 +393,12 @@ static void bt_audio_done(GObject *object, GAsyncResult *result, gpointer data)
 
 /**
  * call_audio_switch_bluetooth_audio_async:
- * @enable: %TRUE to switch to bluetooth audio, or %FALSE to go back to default output
+ * @mute: %TRUE to mute the microphone, or %FALSE to unmute it
  * @cb: Function to be called when operation completes
  * @data: User data to be passed to the callback function after completion. This
  *        data is owned by the caller, which is responsible for freeing it.
  *
- * Enable or disable bluetooth audio in call
+ * Mute or unmute microphone.
  */
 gboolean call_audio_bt_audio_async(gboolean          enable,
                                    CallAudioCallback cb,
@@ -420,11 +419,11 @@ gboolean call_audio_bt_audio_async(gboolean          enable,
 }
 
 /**
- * call_audio_bt_audio:
- * @enable: %TRUE to switch to bluetooth audio, or %FALSE to go back to default output
+ * call_audio_mute_mic:
+ * @mute: %TRUE to mute the microphone, or %FALSE to unmute it
  * @error: The error that will be set if the audio mode could not be selected.
  *
- * Enable or disable bluetooth audio in call. This function is synchronous, and will return
+ * Mute or unmute microphone. This function is synchronous, and will return
  * only once the operation has been executed.
  *
  * Returns: %TRUE if successful, or %FALSE on error.
@@ -440,7 +439,7 @@ gboolean call_audio_bt_audio(gboolean enable, GError **error)
     ret = call_audio_dbus_call_audio_call_bt_audio_sync(_proxy, enable, &success,
                                                         NULL, error);
     if (error && *error)
-        g_critical("Couldn't enable audio path: %s", (*error)->message);
+        g_critical("Couldn't switch audio path: %s", (*error)->message);
 
     g_debug("%s %s: success=%d", ret ? "succeeded" : "failed", __func__, success);
 
@@ -448,13 +447,10 @@ gboolean call_audio_bt_audio(gboolean enable, GError **error)
 }
 
 /**
- * call_audio_get_bt_audio_state:
+ * call_audio_get_mic_state:
  *
- * Returns: 
- *  - %CALL_AUDIO_BT_UNAVAILABLE if there's no valid bluetooth device available
- *  - %CALL_AUDIO_BT_AVAILABLE if there's a valid device but is not in use
- *  - %CALL_AUDIO_BT_ENABLED if there's a valid device and is currently enabled
- *  - %CALL_AUDIO_BT_UNKNOWN if the state is not known.
+ * Returns: %CALL_AUDIO_MIC_ON if the microphone is on, %CALL_AUDIO_MIC_OFF if it is off or
+ * %CALL_AUDIO_MIC_UNKNOWN if the state is not known.
  */
 CallAudioBluetoothState call_audio_get_bt_audio_state(void)
 {
@@ -463,3 +459,97 @@ CallAudioBluetoothState call_audio_get_bt_audio_state(void)
 
     return call_audio_dbus_call_audio_get_bt_audio_state(_proxy);
 }
+
+/* SET OUTPUT DEVICES */
+
+static void output_device_done(GObject *object, GAsyncResult *result, gpointer data)
+{
+    CallAudioDbusCallAudio *proxy = CALL_AUDIO_DBUS_CALL_AUDIO(object);
+    CallAudioAsyncData *async_data = data;
+    GError *error = NULL;
+    gboolean success = 0;
+    gboolean ret;
+
+    g_return_if_fail(CALL_AUDIO_DBUS_IS_CALL_AUDIO(proxy));
+
+    ret = call_audio_dbus_call_audio_call_output_device_finish(proxy, &success,
+                                                          result, &error);
+    if (!ret || !success)
+        g_warning("BT Audio switch failed with code %d: %s", success, error->message);
+
+    g_debug("%s: D-bus call returned %d (success=%d)", __func__, ret, success);
+
+    if (async_data && async_data->cb)
+        async_data->cb(ret && success, error, async_data->user_data);
+    g_free(async_data);
+}
+
+/**
+ * call_audio_switch_bluetooth_audio_async:
+ * @mute: %TRUE to mute the microphone, or %FALSE to unmute it
+ * @cb: Function to be called when operation completes
+ * @data: User data to be passed to the callback function after completion. This
+ *        data is owned by the caller, which is responsible for freeing it.
+ *
+ * Mute or unmute microphone.
+ */
+gboolean call_audio_output_device_async(guint          id,
+                                   CallAudioCallback cb,
+                                   gpointer          data)
+{
+    CallAudioAsyncData *async_data = g_new0(CallAudioAsyncData, 1);
+
+    if (!_initted || !async_data)
+        return FALSE;
+
+    async_data->cb = cb;
+    async_data->user_data = data;
+
+    call_audio_dbus_call_audio_call_output_device(_proxy, id, NULL,
+                                             output_device_done, async_data);
+
+    return TRUE;
+}
+
+/**
+ * call_audio_mute_mic:
+ * @mute: %TRUE to mute the microphone, or %FALSE to unmute it
+ * @error: The error that will be set if the audio mode could not be selected.
+ *
+ * Mute or unmute microphone. This function is synchronous, and will return
+ * only once the operation has been executed.
+ *
+ * Returns: %TRUE if successful, or %FALSE on error.
+ */
+gboolean call_audio_output_device(guint id, GError **error)
+{
+    gboolean success = FALSE;
+    gboolean ret;
+
+    if (!_initted)
+        return FALSE;
+
+    ret = call_audio_dbus_call_audio_call_output_device_sync(_proxy, id, &success,
+                                                        NULL, error);
+    if (error && *error)
+        g_critical("Couldn't switch audio path: %s", (*error)->message);
+
+    g_debug("%s %s: success=%d", ret ? "succeeded" : "failed", __func__, success);
+
+    return (ret && success);
+}
+
+/**
+ * call_audio_output_device_state:
+ *
+ * Returns the ID of the active output device in use
+ */
+CallAudioOutputDeviceOperationState call_audio_output_device_state(void)
+{
+    if (!_initted)
+        return CALL_AUDIO_ACTION_FAILED;
+
+    return call_audio_dbus_call_audio_get_output_device_state(_proxy);
+}
+
+/* SET OUTPUT DEVICES */
