@@ -38,7 +38,7 @@ static void complete_command_cb(CadOperation *op)
         case CAD_OPERATION_MUTE_MIC:
             call_audio_dbus_call_audio_complete_mute_mic(op->object, op->invocation, op->success);
             break;
-        case CAD_OPERATION_SWITCH_BT_AUDIO:
+        case CAD_OPERATION_SWITCH_OUTPUT:
             call_audio_dbus_call_audio_complete_bt_audio(op->object, op->invocation, op->success);
             break;
         default:
@@ -179,7 +179,7 @@ static gboolean cad_manager_handle_switch_bt_audio(CallAudioDbusCallAudio *objec
         return FALSE;
     }
 
-    op->type = CAD_OPERATION_SWITCH_BT_AUDIO;
+    op->type = CAD_OPERATION_SWITCH_OUTPUT;
     op->value = GUINT_TO_POINTER(enable ? CALL_AUDIO_SPEAKER_ON : CALL_AUDIO_SPEAKER_OFF);
     op->object = object;
     op->invocation = invocation;
