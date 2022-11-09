@@ -11,7 +11,7 @@
 static void udev_event_cb(GUdevClient *client, gchar *action, GUdevDevice *device, gpointer data)
 {   
     CadManager *manager = data;
-    /* Give it a second so pulseaudio has a chance of knowing it */
+    /* Give it a second or 5 so pulseaudio has a chance of knowing it */
     if (strcmp(action, "add") == 0) {
         /*
          * Modem is probably executing a FW upgrade, make sure we don't interrupt it
@@ -29,7 +29,7 @@ static void udev_event_cb(GUdevClient *client, gchar *action, GUdevDevice *devic
 
 void udev_init (CadManager *manager)
 {
-    const char * const subsystems[] = { "bluetooth", NULL };
+    const char * const subsystems[] = { "bluetooth", "usb", NULL };
 
     manager->udev = g_udev_client_new(subsystems);
     g_signal_connect(manager->udev, "uevent", G_CALLBACK(udev_event_cb), manager);
