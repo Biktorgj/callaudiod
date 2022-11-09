@@ -226,7 +226,6 @@ CadManager *cad_manager_get_default(void)
         manager = g_object_new(CAD_TYPE_MANAGER, NULL);
         g_object_add_weak_pointer(G_OBJECT(manager), (gpointer *)&manager);
         udev_init(manager);
-        scan_bt_devices(manager);
     }
 
     return manager;
@@ -236,8 +235,7 @@ gboolean scan_bt_devices(CadManager *manager)
 {
     guint ret;
 
-    g_message("Bluetooth rescan triggered");
-
+    g_message("Scan all cards");
     ret = cad_pulse_find_bt_audio_capabilities();
     g_message("Find audio returned %i", ret);
     /*
