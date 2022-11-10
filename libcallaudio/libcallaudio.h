@@ -94,15 +94,15 @@ gboolean call_audio_mute_mic_async(gboolean          enable,
 CallAudioMicState call_audio_get_mic_state(void);
 
 /* Bluetooth */
-gboolean call_audio_bt_audio    (gboolean mute, GError **error);
-gboolean call_audio_bt_audio_async(gboolean          enable,
-                                   CallAudioCallback cb,
-                                   gpointer          data);
-CallAudioBluetoothState call_audio_get_bt_audio_state(void);
-
+GVariant *call_audio_get_available_devices(void);
 /* Set output device */
-gboolean call_audio_output_device    (guint id, GError **error);
+gboolean call_audio_output_device      (guint          id,
+                                        guint          verb,
+                                        gchar         *name,
+                                         GError **error);
 gboolean call_audio_output_device_async(guint          id,
+                                        guint          verb,
+                                        gchar         *name,
                                    CallAudioCallback cb,
                                    gpointer          data);
 CallAudioOutputDeviceOperationState call_audio_output_device_state(void);

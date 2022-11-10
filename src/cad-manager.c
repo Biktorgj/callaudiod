@@ -38,7 +38,7 @@ static void complete_command_cb(CadOperation *op)
             call_audio_dbus_call_audio_complete_mute_mic(op->object, op->invocation, op->success);
             break;
         case CAD_OPERATION_SWITCH_OUTPUT:
-            call_audio_dbus_call_audio_complete_bt_audio(op->object, op->invocation, op->success);
+            call_audio_dbus_call_audio_complete_output_device(op->object, op->invocation, op->success);
             break;
         default:
             g_critical("unknown operation %d", op->type);
@@ -163,37 +163,10 @@ cad_manager_get_mic_state(CallAudioDbusCallAudio *object)
 }
 
 
-static gboolean cad_manager_handle_switch_bt_audio(CallAudioDbusCallAudio *object,
-                                                  GDBusMethodInvocation *invocation,
-                                                  gboolean enable)
+static GVariant *
+cad_manager_get_available_devices(CallAudioDbusCallAudio *object)
 {
-    CadOperation *op;
-
-    op = g_new(CadOperation, 1);
-    if (!op) {
-        g_critical("Unable to allocate memory for speaker operation");
-        g_dbus_method_invocation_return_error(invocation, G_DBUS_ERROR,
-                                              G_DBUS_ERROR_NO_MEMORY,
-                                              "Failed to allocate operation");
-        return FALSE;
-    }
-
-    op->type = CAD_OPERATION_SWITCH_OUTPUT;
-    op->value = GUINT_TO_POINTER(enable ? CALL_AUDIO_SPEAKER_ON : CALL_AUDIO_SPEAKER_OFF);
-    op->object = object;
-    op->invocation = invocation;
-    op->callback = complete_command_cb;
-
-    g_message("Enable BT audio: %d", enable);
-    cad_pulse_enable_bt_audio(enable, op);
-
-    return TRUE;
-}
-
-static CallAudioBluetoothState
-cad_manager_get_bt_audio_state(CallAudioDbusCallAudio *object)
-{
-    return cad_pulse_get_bt_audio_state();
+    return cad_pulse_get_available_devices();
 }
 
 static void cad_manager_call_audio_iface_init(CallAudioDbusCallAudioIface *iface)
@@ -204,8 +177,7 @@ static void cad_manager_call_audio_iface_init(CallAudioDbusCallAudioIface *iface
     iface->get_speaker_state = cad_manager_get_speaker_state;
     iface->handle_mute_mic = cad_manager_handle_mute_mic;
     iface->get_mic_state = cad_manager_get_mic_state;
-    iface->handle_bt_audio = cad_manager_handle_switch_bt_audio;
-    iface->get_bt_audio_state = cad_manager_get_bt_audio_state;
+    iface->get_available_devices = cad_manager_get_available_devices;
 }
 
 static void cad_manager_class_init(CadManagerClass *klass)

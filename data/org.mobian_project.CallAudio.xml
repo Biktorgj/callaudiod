@@ -56,21 +56,17 @@
     -->
     <property name="MicState" type="u" access="read"/>
     
-    <method name="BtAudio">
-      <arg direction="in" name="enable" type="b"/>
-      <arg direction="out" name="success" type="b"/>
-    </method>
-
     <!--
-        BtAudioState:
-        0 = off, 1 = available, 2 = enabled, 255 = unknown
-        all other values should be considered the same as 'unknown'
+        AvailableDevices:
+        Devices is an array of u(ID) u(VERB) s(DEVICE_NAME)
     -->
-    <property name="BtAudioState" type="u" access="read"/>
+    <property name="AvailableDevices" type="a(uus)" access="read"/>
             
     <!-- Get/Set Output Device -->
     <method name="OutputDevice">
       <arg direction="in" name="id" type="u"/>
+      <arg direction="in" name="verb" type="u"/>
+      <arg direction="in" name="name" type="s"/>
       <arg direction="out" name="success" type="b"/>
     </method>
 
