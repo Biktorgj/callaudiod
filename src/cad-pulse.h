@@ -28,5 +28,4 @@ CallAudioSpeakerState cad_pulse_get_speaker_state(void);
 CallAudioMicState cad_pulse_get_mic_state(void);
 CallAudioBluetoothState cad_pulse_get_bt_audio_state(void);
 void cad_pulse_enable_bt_audio(gboolean enable, CadOperation *cad_op);
-gboolean cad_pulse_find_bt_audio_capabilities(void);
 G_END_DECLS
