@@ -9,7 +9,6 @@ cad_deps = [
     dependency('alsa'),
     dependency('gobject-2.0'),
     dependency('gio-unix-2.0'),
-    dependency('gudev-1.0'),
     dependency('libpulse'),
     dependency('libpulse-mainloop-glib'),
 ]
@@ -23,7 +22,6 @@ executable (
         'callaudiod.c', 'callaudiod.h',
         'cad-manager.c', 'cad-manager.h',
         'cad-pulse.c', 'cad-pulse.h',
-        'udev.c', 'udev.h'
     ],
     dependencies : cad_deps,
     include_directories : include_directories('..', '../libcallaudio'),
