@@ -11,7 +11,6 @@
 #include "cad-pulse.h"
 
 #include "libcallaudio.h"
-#include "udev.h"
 #include <gio/gio.h>
 #include <glib-unix.h>
 
@@ -225,23 +224,7 @@ CadManager *cad_manager_get_default(void)
         g_debug("initializing manager...");
         manager = g_object_new(CAD_TYPE_MANAGER, NULL);
         g_object_add_weak_pointer(G_OBJECT(manager), (gpointer *)&manager);
-        udev_init(manager);
     }
 
     return manager;
-}
-
-gboolean scan_bt_devices(CadManager *manager)
-{
-    guint ret;
-
-    g_message("Scan all cards");
-    ret = cad_pulse_find_bt_audio_capabilities();
-    g_message("Find audio returned %i", ret);
-    /*
-     * We need to query here all pulseaudio cards
-     * that are using the bluez module. We should
-     * do this in cad_pulse
-     */
-    return G_SOURCE_REMOVE;
 }
