@@ -422,7 +422,6 @@ static void output_device_done(GObject *object, GAsyncResult *result, gpointer d
  */
 gboolean call_audio_output_device_async(guint          id,
                                         guint          verb,
-                                        gchar         *name,
                                    CallAudioCallback cb,
                                    gpointer          data)
 {
@@ -434,7 +433,7 @@ gboolean call_audio_output_device_async(guint          id,
     async_data->cb = cb;
     async_data->user_data = data;
 
-    call_audio_dbus_call_audio_call_output_device(_proxy, id, verb, name, NULL,
+    call_audio_dbus_call_audio_call_output_device(_proxy, id, verb, NULL,
                                              output_device_done, async_data);
 
     return TRUE;
@@ -452,7 +451,6 @@ gboolean call_audio_output_device_async(guint          id,
  */
 gboolean call_audio_output_device(guint          id,
                                         guint          verb,
-                                        gchar         *name,
                                          GError **error)
 {
     gboolean success = FALSE;
@@ -461,7 +459,7 @@ gboolean call_audio_output_device(guint          id,
     if (!_initted)
         return FALSE;
 
-    ret = call_audio_dbus_call_audio_call_output_device_sync(_proxy, id, verb, name, &success,
+    ret = call_audio_dbus_call_audio_call_output_device_sync(_proxy, id, verb, &success,
                                                         NULL, error);
     if (error && *error)
         g_critical("Couldn't switch audio path: %s", (*error)->message);

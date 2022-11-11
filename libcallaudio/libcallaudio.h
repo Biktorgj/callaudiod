@@ -99,11 +99,9 @@ GVariant *call_audio_get_available_devices(void);
 /* Set output device */
 gboolean call_audio_output_device      (guint          id,
                                         guint          verb,
-                                        gchar         *name,
                                          GError **error);
 gboolean call_audio_output_device_async(guint          id,
                                         guint          verb,
-                                        gchar         *name,
                                    CallAudioCallback cb,
                                    gpointer          data);
 CallAudioOutputDeviceOperationState call_audio_output_device_state(void);
