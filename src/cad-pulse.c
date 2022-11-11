@@ -1149,27 +1149,27 @@ GVariant *cad_pulse_get_available_devices(void)
     GVariant *devices;
     GVariantBuilder *device;
     guint device_type = 0;
-    g_message("%s START", __func__);
-    device = g_variant_builder_new(G_VARIANT_TYPE("a(uuus)"));
+    gboolean is_active = FALSE;
+    device = g_variant_builder_new(G_VARIANT_TYPE("a(buuus)"));
 
     if (self->primary_card->has_earpiece) {
         tmpcard = g_strdup_printf("Earpiece");
-        g_variant_builder_add(device, "(uuus)", self->primary_card->card_id, device_type, 0, tmpcard);
+        g_variant_builder_add(device, "(buuus)", is_active, self->primary_card->card_id, device_type, 0, tmpcard);
     }
     if (self->primary_card->has_headset) {
         tmpcard = g_strdup_printf("Headset");
-        g_variant_builder_add(device, "(uuus)", self->primary_card->card_id, device_type, 1, tmpcard);
- 
+        g_variant_builder_add(device, "(buuus)", is_active, self->primary_card->card_id, device_type, 1, tmpcard);
     }
     if (self->primary_card->has_speaker) {
-       tmpcard =  g_strdup_printf("Speaker");
-        g_variant_builder_add(device, "(uuus)", self->primary_card->card_id, device_type, 2, tmpcard);
+        tmpcard =  g_strdup_printf("Speaker");
+        g_variant_builder_add(device, "(buuus)", is_active, self->primary_card->card_id, device_type, 2, tmpcard);
  
     }
     if (self->primary_card->has_headphones) {
-       tmpcard = g_strdup_printf("%s: Headphones", self->primary_card->card_description);
-       g_variant_builder_add(device, "(uuus)", self->primary_card->card_id, device_type, 3, tmpcard);
+       tmpcard = g_strdup_printf("Headphones");
+       g_variant_builder_add(device, "(buuus)", is_active, self->primary_card->card_id, device_type, 3, tmpcard);
     } 
+
     for (int i = 0; i < self->total_external_cards; i++) {
         g_critical("%s: %i", __func__, i);
         card = g_array_index( self->cards, AudioCard*, i );
@@ -1179,25 +1179,23 @@ GVariant *cad_pulse_get_available_devices(void)
             device_type =2;
         }
         if (card->has_earpiece) {
-        tmpcard =  g_strdup_printf("%s: Earpiece", card->card_description);
-            g_variant_builder_add(device, "(uuus)", card->card_id, device_type, 0, tmpcard);
+            tmpcard =  g_strdup_printf("%s: Earpiece", card->card_description);
+            g_variant_builder_add(device, "(buuus)", is_active, card->card_id, device_type, 0, tmpcard);
         }
         if (card->has_headset) {
-        tmpcard =    g_strdup_printf("%s: Headset", card->card_description);
-            g_variant_builder_add(device, "(uuus)", card->card_id, device_type, 1, tmpcard);
-    
+            tmpcard =    g_strdup_printf("%s: Headset", card->card_description);
+            g_variant_builder_add(device, "(buuus)", is_active, card->card_id, device_type, 1, tmpcard);
         }
         if (card->has_speaker) {
-        tmpcard =   g_strdup_printf("%s: Speaker", card->card_description);
-            g_variant_builder_add(device, "(uuus)", card->card_id, device_type, 2, tmpcard);
-    
+            tmpcard =   g_strdup_printf("%s: Speaker", card->card_description);
+            g_variant_builder_add(device, "(buuus)", is_active, card->card_id, device_type, 2, tmpcard);
         }
         if (card->has_headphones) {
-        tmpcard =  g_strdup_printf("%s: Headphones", card->card_description);
-        g_variant_builder_add(device, "(uuus)", card->card_id, device_type, 3, tmpcard);
+            tmpcard =  g_strdup_printf("%s: Headphones", card->card_description);
+            g_variant_builder_add(device, "(buuus)", is_active, card->card_id, device_type, 3, tmpcard);
         }
     }
-    devices = g_variant_new("a(uuus)", device);
+    devices = g_variant_new("a(buuus)", device);
     //g_variant_builder_unref(device);
     return devices;
 }

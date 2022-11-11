@@ -59,8 +59,9 @@
     <!--
         AvailableDevices:
         Devices is an array of u(ID) u(VERB) s(DEVICE_NAME)
+        We might also need a (b) is active flag
     -->
-    <property name="AvailableDevices" type="a(uuus)" access="read"/>
+    <property name="AvailableDevices" type="a(buuus)" access="read"/>
             
     <method name="OutputDevice">
       <arg direction="in" name="id" type="u"/>
