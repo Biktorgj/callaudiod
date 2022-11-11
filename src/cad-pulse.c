@@ -66,6 +66,7 @@ typedef struct _AudioCard
    gboolean is_usb;
    gboolean is_bt;
    gchar *card_name;
+   gchar *card_description;
    gboolean has_earpiece;
    gboolean has_speaker;
    gboolean has_headset;
@@ -74,7 +75,7 @@ typedef struct _AudioCard
    gboolean has_voice_profile;
    GHashTable *sink_ports;
    GHashTable *source_ports;
-   PortNames *ports;
+   PortNames ports;
    int sink_id;
    int source_id;
 } AudioCard;
@@ -176,7 +177,9 @@ static void init_source_info(pa_context *ctx, const pa_source_info *info, int eo
         g_critical("PA returned no source info (eol=%d)", eol);
         return;
     }
-
+    if (!self->primary_card) {
+        g_message("Primary card not found!");
+    }
     if (info->card == self->primary_card->card_id) {
         card = self->primary_card;
         g_message("Source info belongs to primary card (%s)", card->card_name);
@@ -265,6 +268,7 @@ static void init_sink_info(pa_context *ctx, const pa_sink_info *info, int eol, v
 {
     CadPulse *self = data;
     AudioCard *card;
+    pa_sink_port_info *port;
     pa_operation *op;
     int i;
     if (eol != 0)
@@ -274,9 +278,13 @@ static void init_sink_info(pa_context *ctx, const pa_sink_info *info, int eol, v
         g_critical("PA returned no sink info (eol=%d)", eol);
         return;
     }
+    
+    if (!self->primary_card) {
+        g_message("Primary card not found!");
+    }
     if (info->card == self->primary_card->card_id) {
         card = self->primary_card;
-        g_message("Sink info belongs to primary card (%s)", card->card_name);
+        g_message("Sink info belongs to primary card (%s)", self->primary_card->card_name);
     } else {
         g_message("Sink info belongs to a secondary card");
         for (i = 0; i < self->total_external_cards; i++) {
@@ -298,35 +306,37 @@ static void init_sink_info(pa_context *ctx, const pa_sink_info *info, int eol, v
      *  if it is the primary card
      *  
      */
-
+    g_message("Looking for ports...");
     if (card->is_primary) {
         for (i = 0; i < info->n_ports; i++) {
-            pa_sink_port_info *port = info->ports[i];
+            g_message("Iteration %i", i);
+            port = info->ports[i];
             if (strstr(port->name, SND_USE_CASE_DEV_SPEAKER) != NULL) {
-                if (card->ports->speaker_port) {
-                    g_free(card->ports->speaker_port);
+                if (card->ports.speaker_port != NULL) {
+                    g_message("Free speaker");
+                    g_free(card->ports.speaker_port);
                 }
-                card->ports->speaker_port = g_strdup(port->name);
+                card->ports.speaker_port = g_strdup(port->name);
             } else if (strstr(port->name, SND_USE_CASE_DEV_EARPIECE) != NULL) {
-                if (card->ports->earpiece_port) {
-                        g_free(card->ports->earpiece_port);
+                if (card->ports.earpiece_port) {
+                        g_free(card->ports.earpiece_port);
                     }
-                card->ports->earpiece_port = g_strdup(port->name);
+                card->ports.earpiece_port = g_strdup(port->name);
             } else if (strstr(port->name, SND_USE_CASE_DEV_HEADSET) != NULL) {
-                if (card->ports->headset_port) {
-                        g_free(card->ports->headset_port);
+                if (card->ports.headset_port) {
+                        g_free(card->ports.headset_port);
                     }
-                card->ports->headset_port = g_strdup(port->name);
+                card->ports.headset_port = g_strdup(port->name);
             } else if (strstr(port->name, SND_USE_CASE_DEV_HANDSET) != NULL) {
-                if (card->ports->handset_port) {
-                        g_free(card->ports->handset_port);
+                if (card->ports.handset_port) {
+                        g_free(card->ports.handset_port);
                     }
-                card->ports->handset_port = g_strdup(port->name);
+                card->ports.handset_port = g_strdup(port->name);
             } else if (strstr(port->name, SND_USE_CASE_DEV_HEADPHONES) != NULL) {
-                if (card->ports->headphones_port) {
-                        g_free(card->ports->headphones_port);
+                if (card->ports.headphones_port) {
+                        g_free(card->ports.headphones_port);
                     }
-                card->ports->headphones_port = g_strdup(port->name);
+                card->ports.headphones_port = g_strdup(port->name);
             } 
         }
         // Unsure why this is here?
@@ -389,6 +399,16 @@ static void init_card_info(pa_context *ctx, const pa_card_info *info, int eol, v
 
     this_card->card_id = info->index;
     this_card->card_name = g_strdup(info->name);
+    
+    prop = pa_proplist_gets(info->proplist, "device.description");
+    if (prop) {
+        g_message(" - Card:: %s", prop);
+        this_card->card_description = g_strdup(prop);
+    } else {
+        g_message("No description for the card");
+        this_card->card_description = g_strdup(info->name);
+    }
+    
 
     g_message("Card %i, with name %s", this_card->card_id, this_card->card_name);
     if (strcmp(info->driver, PA_BT_DRIVER) == 0) {
@@ -425,15 +445,15 @@ static void init_card_info(pa_context *ctx, const pa_card_info *info, int eol, v
     for (i = 0; i < info->n_ports; i++) {
         pa_card_port_info *port = info->ports[i];
         g_message(" - Card port %s", port->name);
-        if (strstr(port->name, SND_USE_CASE_DEV_SPEAKER) != NULL) {
+        if (strstr(port->name, g_ascii_strdown(SND_USE_CASE_DEV_SPEAKER, -1)) != NULL) {
             this_card->has_speaker = TRUE;
-        } else if (strstr(port->name, SND_USE_CASE_DEV_EARPIECE) != NULL) {
+        } else if (strstr(port->name, g_ascii_strdown(SND_USE_CASE_DEV_EARPIECE, -1)) != NULL) {
             this_card->has_earpiece = TRUE;
-        } else if (strstr(port->name, SND_USE_CASE_DEV_HEADSET) != NULL) {
+        } else if (strstr(port->name, g_ascii_strdown(SND_USE_CASE_DEV_HEADSET, -1)) != NULL) {
             this_card->has_headset = TRUE;
-        } else if (strstr(port->name, SND_USE_CASE_DEV_HANDSET) != NULL) {
+        } else if (strstr(port->name, g_ascii_strdown(SND_USE_CASE_DEV_HANDSET, -1)) != NULL) {
             this_card->has_earpiece = TRUE;
-        } else if (strstr(port->name, SND_USE_CASE_DEV_HEADPHONES) != NULL) {
+        } else if (strstr(port->name, g_ascii_strdown(SND_USE_CASE_DEV_HEADPHONES, -1)) != NULL) {
             this_card->has_headphones = TRUE;
         } 
     }
@@ -607,6 +627,8 @@ static void changed_cb(pa_context *ctx, pa_subscription_event_type_t type, uint3
     default:
         break;
     }
+    g_object_set(self->manager, "available-devices", cad_pulse_get_available_devices(), NULL);
+
 }
 
 static void pulse_state_cb(pa_context *ctx, void *data)
@@ -802,8 +824,9 @@ static void operation_complete_cb(pa_context *ctx, int success, void *data)
                     if (operation->pulse->bt_audio > 0 &&
                         operation->pulse->bt_audio != new_value) {
                         operation->pulse->bt_audio = new_value;
-                        g_object_set(operation->pulse->manager, "bt-audio-state", new_value, NULL);
+                        g_object_set(operation->pulse->manager, "available-devices", cad_pulse_get_available_devices(), NULL);
                     }
+                    break;
                 default:
                     break;
                 }
@@ -1121,18 +1144,61 @@ CallAudioMicState cad_pulse_get_mic_state(void)
 GVariant *cad_pulse_get_available_devices(void) 
 {
     CadPulse *self = cad_pulse_get_default();
+    gchar *tmpcard;
+    AudioCard * card;
     GVariant *devices;
     GVariantBuilder *device;
-    g_message("%s", __func__);
-    device = g_variant_builder_new(G_VARIANT_TYPE("a(uus)"));
-    g_variant_builder_add(device, "(uus)", self->primary_card->card_id, 0, self->primary_card->card_name);
-    
-    for (int i = 0; i < self->total_external_cards; i++) {
-        AudioCard * card = &g_array_index( self->cards, AudioCard, i );
-        g_variant_builder_add(device, "(uus)", card->card_id,0, card->card_name);
+    guint device_type = 0;
+    g_message("%s START", __func__);
+    device = g_variant_builder_new(G_VARIANT_TYPE("a(uuus)"));
+
+    if (self->primary_card->has_earpiece) {
+        tmpcard = g_strdup_printf("Earpiece");
+        g_variant_builder_add(device, "(uuus)", self->primary_card->card_id, device_type, 0, tmpcard);
     }
-    devices = g_variant_new("a(uus)", device);
-    g_variant_builder_unref(device);
+    if (self->primary_card->has_headset) {
+        tmpcard = g_strdup_printf("Headset");
+        g_variant_builder_add(device, "(uuus)", self->primary_card->card_id, device_type, 1, tmpcard);
+ 
+    }
+    if (self->primary_card->has_speaker) {
+       tmpcard =  g_strdup_printf("Speaker");
+        g_variant_builder_add(device, "(uuus)", self->primary_card->card_id, device_type, 2, tmpcard);
+ 
+    }
+    if (self->primary_card->has_headphones) {
+       tmpcard = g_strdup_printf("%s: Headphones", self->primary_card->card_description);
+       g_variant_builder_add(device, "(uuus)", self->primary_card->card_id, device_type, 3, tmpcard);
+    } 
+    for (int i = 0; i < self->total_external_cards; i++) {
+        g_critical("%s: %i", __func__, i);
+        card = g_array_index( self->cards, AudioCard*, i );
+        if (card->is_bt) {
+            device_type = 1;
+        } else if (card->is_usb) {
+            device_type =2;
+        }
+        if (card->has_earpiece) {
+        tmpcard =  g_strdup_printf("%s: Earpiece", card->card_description);
+            g_variant_builder_add(device, "(uuus)", card->card_id, device_type, 0, tmpcard);
+        }
+        if (card->has_headset) {
+        tmpcard =    g_strdup_printf("%s: Headset", card->card_description);
+            g_variant_builder_add(device, "(uuus)", card->card_id, device_type, 1, tmpcard);
+    
+        }
+        if (card->has_speaker) {
+        tmpcard =   g_strdup_printf("%s: Speaker", card->card_description);
+            g_variant_builder_add(device, "(uuus)", card->card_id, device_type, 2, tmpcard);
+    
+        }
+        if (card->has_headphones) {
+        tmpcard =  g_strdup_printf("%s: Headphones", card->card_description);
+        g_variant_builder_add(device, "(uuus)", card->card_id, device_type, 3, tmpcard);
+        }
+    }
+    devices = g_variant_new("a(uuus)", device);
+    //g_variant_builder_unref(device);
     return devices;
 }
 

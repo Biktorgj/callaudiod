@@ -93,8 +93,9 @@ gboolean call_audio_mute_mic_async(gboolean          enable,
                                    gpointer          data);
 CallAudioMicState call_audio_get_mic_state(void);
 
-/* Bluetooth */
+/* Get available devices */
 GVariant *call_audio_get_available_devices(void);
+
 /* Set output device */
 gboolean call_audio_output_device      (guint          id,
                                         guint          verb,

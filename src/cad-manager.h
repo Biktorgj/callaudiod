@@ -14,10 +14,6 @@ G_BEGIN_DECLS
 
 #define CAD_TYPE_MANAGER (cad_manager_get_type())
 
-typedef struct _CadManager {
-    CallAudioDbusCallAudioSkeleton parent;
-} CadManager;
-
 G_DECLARE_FINAL_TYPE(CadManager, cad_manager, CAD, MANAGER,
                      CallAudioDbusCallAudioSkeleton);
 

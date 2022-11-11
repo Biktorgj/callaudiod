@@ -60,9 +60,8 @@
         AvailableDevices:
         Devices is an array of u(ID) u(VERB) s(DEVICE_NAME)
     -->
-    <property name="AvailableDevices" type="a(uus)" access="read"/>
+    <property name="AvailableDevices" type="a(uuus)" access="read"/>
             
-    <!-- Get/Set Output Device -->
     <method name="OutputDevice">
       <arg direction="in" name="id" type="u"/>
       <arg direction="in" name="verb" type="u"/>

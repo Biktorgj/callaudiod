@@ -369,9 +369,22 @@ CallAudioMicState call_audio_get_mic_state(void)
     return call_audio_dbus_call_audio_get_mic_state(_proxy);
 }
 
+/**
+ * call_audio_get_available_devices:
+ *
+ * Returns: Array of cards with ID, Verb and name
+ *
+ */
 GVariant *call_audio_get_available_devices(void)
 {
+
+    g_critical("%s: Requested available devices 1", __func__);
+    if (!_initted) {
+        g_critical("%s wasnt initialized!!!", __func__);
+    }
+
     return call_audio_dbus_call_audio_get_available_devices(_proxy);
+
 }
 
 /* SET OUTPUT DEVICES */

@@ -71,7 +71,7 @@ int main(int argc, char **argv)
 
     main_loop = g_main_loop_new(NULL, FALSE);
 
-    g_message("**** Callaudiod 0.1.4 Start ****");
+    g_message("**** Callaudiod 0.1.5 Start ****");
     // Initialize the PulseAudio backend
     cad_pulse_get_default();
     g_bus_own_name(CALLAUDIO_DBUS_TYPE, CALLAUDIO_DBUS_NAME,

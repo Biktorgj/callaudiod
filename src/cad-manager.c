@@ -14,6 +14,10 @@
 #include <gio/gio.h>
 #include <glib-unix.h>
 
+typedef struct _CadManager {
+    CallAudioDbusCallAudioSkeleton parent;
+} CadManager;
+
 static void cad_manager_call_audio_iface_init(CallAudioDbusCallAudioIface *iface);
 
 G_DEFINE_TYPE_WITH_CODE(CadManager, cad_manager,
@@ -33,8 +37,8 @@ static void complete_command_cb(CadOperation *op)
             break;
         case CAD_OPERATION_ENABLE_SPEAKER:
             call_audio_dbus_call_audio_complete_enable_speaker(op->object, op->invocation, op->success);
-            break;
-        case CAD_OPERATION_MUTE_MIC:
+        break;
+    case CAD_OPERATION_MUTE_MIC:
             call_audio_dbus_call_audio_complete_mute_mic(op->object, op->invocation, op->success);
             break;
         case CAD_OPERATION_SWITCH_OUTPUT:
@@ -93,6 +97,7 @@ static gboolean cad_manager_handle_select_mode(CallAudioDbusCallAudio *object,
 static CallAudioMode
 cad_manager_get_audio_mode(CallAudioDbusCallAudio *object)
 {
+    g_critical("Get audio mode called from dbus");
     return cad_pulse_get_audio_mode();
 }
 
@@ -165,7 +170,7 @@ cad_manager_get_mic_state(CallAudioDbusCallAudio *object)
 
 static GVariant *
 cad_manager_get_available_devices(CallAudioDbusCallAudio *object)
-{
+{   
     return cad_pulse_get_available_devices();
 }
 
