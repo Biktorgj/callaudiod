@@ -19,9 +19,8 @@
  */
 typedef enum {
     CAD_OPERATION_SELECT_MODE = 0,
-    CAD_OPERATION_ENABLE_SPEAKER,
     CAD_OPERATION_MUTE_MIC,
-    CAD_OPERATION_SWITCH_OUTPUT,
+    CAD_OPERATION_OUTPUT_DEVICE,
 } CadOperationType;
 
 typedef struct _CadOperation CadOperation;
