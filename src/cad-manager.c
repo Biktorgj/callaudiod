@@ -35,13 +35,10 @@ static void complete_command_cb(CadOperation *op)
         case CAD_OPERATION_SELECT_MODE:
             call_audio_dbus_call_audio_complete_select_mode(op->object, op->invocation, op->success);
             break;
-        case CAD_OPERATION_ENABLE_SPEAKER:
-            call_audio_dbus_call_audio_complete_enable_speaker(op->object, op->invocation, op->success);
-        break;
-    case CAD_OPERATION_MUTE_MIC:
+        case CAD_OPERATION_MUTE_MIC:
             call_audio_dbus_call_audio_complete_mute_mic(op->object, op->invocation, op->success);
             break;
-        case CAD_OPERATION_SWITCH_OUTPUT:
+        case CAD_OPERATION_OUTPUT_DEVICE:
             call_audio_dbus_call_audio_complete_output_device(op->object, op->invocation, op->success);
             break;
         default:
@@ -64,6 +61,7 @@ static gboolean cad_manager_handle_select_mode(CallAudioDbusCallAudio *object,
     switch ((CallAudioMode)mode) {
     case CALL_AUDIO_MODE_DEFAULT:
     case CALL_AUDIO_MODE_CALL:
+    case CALL_AUDIO_MODE_SIP:
         break;
     case CALL_AUDIO_MODE_UNKNOWN:
     default:
@@ -88,7 +86,7 @@ static gboolean cad_manager_handle_select_mode(CallAudioDbusCallAudio *object,
     op->invocation = invocation;
     op->callback = complete_command_cb;
 
-    g_debug("Select mode: %u", mode);
+    g_message("%s: Select mode: %u", __func__, mode);
     cad_pulse_select_mode(mode, op);
 
     return TRUE;
@@ -97,41 +95,7 @@ static gboolean cad_manager_handle_select_mode(CallAudioDbusCallAudio *object,
 static CallAudioMode
 cad_manager_get_audio_mode(CallAudioDbusCallAudio *object)
 {
-    g_critical("Get audio mode called from dbus");
     return cad_pulse_get_audio_mode();
-}
-
-static gboolean cad_manager_handle_enable_speaker(CallAudioDbusCallAudio *object,
-                                                  GDBusMethodInvocation *invocation,
-                                                  gboolean enable)
-{
-    CadOperation *op;
-
-    op = g_new(CadOperation, 1);
-    if (!op) {
-        g_critical("Unable to allocate memory for speaker operation");
-        g_dbus_method_invocation_return_error(invocation, G_DBUS_ERROR,
-                                              G_DBUS_ERROR_NO_MEMORY,
-                                              "Failed to allocate operation");
-        return FALSE;
-    }
-
-    op->type = CAD_OPERATION_ENABLE_SPEAKER;
-    op->value = GUINT_TO_POINTER(enable ? CALL_AUDIO_SPEAKER_ON : CALL_AUDIO_SPEAKER_OFF);
-    op->object = object;
-    op->invocation = invocation;
-    op->callback = complete_command_cb;
-
-    g_debug("Enable speaker: %d", enable);
-    cad_pulse_enable_speaker(enable, op);
-
-    return TRUE;
-}
-
-static CallAudioSpeakerState
-cad_manager_get_speaker_state(CallAudioDbusCallAudio *object)
-{
-    return cad_pulse_get_speaker_state();
 }
 
 static gboolean cad_manager_handle_mute_mic(CallAudioDbusCallAudio *object,
@@ -160,7 +124,32 @@ static gboolean cad_manager_handle_mute_mic(CallAudioDbusCallAudio *object,
 
     return TRUE;
 }
+static gboolean cad_manager_handle_output_device(CallAudioDbusCallAudio *object,
+                                            GDBusMethodInvocation *invocation,
+                                            guint device_id, guint device_verb)
+{
+    CadOperation *op;
 
+    op = g_new(CadOperation, 1);
+    if (!op) {
+        g_critical("Unable to allocate memory for mic operation");
+        g_dbus_method_invocation_return_error(invocation, G_DBUS_ERROR,
+                                              G_DBUS_ERROR_NO_MEMORY,
+                                              "Failed to allocate operation");
+        return FALSE;
+    }
+    g_message("Requested Device ID %i with verb %i", device_id, device_verb);
+
+    op->type = CAD_OPERATION_OUTPUT_DEVICE;
+    op->value = GUINT_TO_POINTER(device_id);
+    op->object = object;
+    op->invocation = invocation;
+    op->callback = complete_command_cb;
+
+    cad_pulse_set_output_device(device_id, device_verb, op);
+
+    return TRUE;
+}
 static CallAudioMicState
 cad_manager_get_mic_state(CallAudioDbusCallAudio *object)
 {
@@ -178,11 +167,10 @@ static void cad_manager_call_audio_iface_init(CallAudioDbusCallAudioIface *iface
 {
     iface->handle_select_mode = cad_manager_handle_select_mode;
     iface->get_audio_mode = cad_manager_get_audio_mode;
-    iface->handle_enable_speaker = cad_manager_handle_enable_speaker;
-    iface->get_speaker_state = cad_manager_get_speaker_state;
     iface->handle_mute_mic = cad_manager_handle_mute_mic;
     iface->get_mic_state = cad_manager_get_mic_state;
     iface->get_available_devices = cad_manager_get_available_devices;
+    iface->handle_output_device = cad_manager_handle_output_device;
 }
 
 static void cad_manager_class_init(CadManagerClass *klass)
