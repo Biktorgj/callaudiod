@@ -31,7 +31,7 @@
         0 = default audio mode, 1 = voice call mode, 255 = unknown
     -->
     <property name="AudioMode" type="u" access="read"/>
-
+    
     <method name="EnableSpeaker">
       <arg direction="in" name="enable" type="b"/>
       <arg direction="out" name="success" type="b"/>
@@ -44,7 +44,7 @@
     -->
     <property name="SpeakerState" type="u" access="read"/>
 
-    <method name="MuteMic">
+     <method name="MuteMic">
       <arg direction="in" name="mute" type="b"/>
       <arg direction="out" name="success" type="b"/>
     </method>
@@ -58,8 +58,8 @@
     
     <!--
         AvailableDevices:
-        Devices is an array of u(ID) u(VERB) s(DEVICE_NAME)
-        We might also need a (b) is active flag
+        Array of available audio outputs
+        b(is_active) u(ID) u(verb) s(device_name)
     -->
     <property name="AvailableDevices" type="a(buuus)" access="read"/>
             

@@ -25,6 +25,7 @@ G_BEGIN_DECLS
 typedef enum {
   CALL_AUDIO_MODE_DEFAULT = 0,
   CALL_AUDIO_MODE_CALL,
+  CALL_AUDIO_MODE_SIP,
   CALL_AUDIO_MODE_UNKNOWN = 255
 } CallAudioMode;
 
@@ -81,11 +82,13 @@ gboolean call_audio_select_mode_async(CallAudioMode     mode,
                                       gpointer          data);
 CallAudioMode call_audio_get_audio_mode(void);
 
+/* CANT REMOVE THIS WITHOUT MAKING PHOSH CRASH */
 gboolean call_audio_enable_speaker      (gboolean enable, GError **error);
 gboolean call_audio_enable_speaker_async(gboolean          enable,
                                          CallAudioCallback cb,
                                          gpointer          data);
 CallAudioSpeakerState call_audio_get_speaker_state(void);
+/* END CANT REMOVE THIS WITHOUT MAKING PHOSH CRASH */
 
 gboolean call_audio_mute_mic      (gboolean mute, GError **error);
 gboolean call_audio_mute_mic_async(gboolean          enable,
