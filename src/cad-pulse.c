@@ -24,14 +24,13 @@
 #define APPLICATION_ID   "org.mobian-project.CallAudio"
 
 #define SINK_CLASS "sound"
-#define CARD_BUS_PATH_PREFIX "platform-"
 #define CARD_FORM_FACTOR "internal"
 #define CARD_MODEM_CLASS "modem"
 #define CARD_MODEM_NAME "Modem"
 #define PA_BT_DRIVER "module-bluez5-device.c"
 #define PA_BT_PREFERRED_PROFILE "handsfree_head_unit"
 #define PA_MODEM_LOOPBACKPORT "ModemLoopback"
-#define PA_MAIN_CARD_BT_PROFILE "Voice Call BT"
+
 /*
  *  Things to account for:
  *      VoIP calls only need HiFi.
@@ -47,15 +46,19 @@
   * u8 verb
   * char *card_name
  */
-typedef struct _PortNames {
-    gchar *earpiece_port;
-    gchar *speaker_port;
-    gchar *handset_port;
-    gchar *headset_port;
-    gchar *headphones_port;
-    gchar *internal_mic;
-    gchar *headset_mic;
-} PortNames;
+
+typedef struct _Port {
+    gboolean available;
+    gchar *port;
+    guint verb;
+} Port;
+
+typedef struct _Ports {
+    Port *earpiece; // Earpiece & handset
+    Port *headset;
+    Port *headphones;
+    Port *speaker;
+} Ports;
 
 typedef struct _AudioCard
 {
@@ -74,30 +77,13 @@ typedef struct _AudioCard
    gboolean has_headphones;
    gboolean needs_loopback;
    gboolean has_voice_profile;
-   GHashTable *sink_ports;
-   GHashTable *source_ports;
-   PortNames ports;
+   Ports *ports;
    int sink_id;
    gchar *sink_name;
    int source_id;
    gchar *source_name;
 } AudioCard;
 
-typedef struct _CardConfig
-{
-    guint card_id;
-    guint profile_id;
-    gchar *profile_name;
-    guint sink_id;
-    guint source_id;
-    gboolean loopback;
-} CardConfig;
-
-typedef struct _CardItem {
-    guint id;
-    guint verb;
-    gchar *name;
-} CardItem;
 struct _CadPulse
 {
     GObject parent_instance;
@@ -111,18 +97,16 @@ struct _CadPulse
 
     CallAudioMode audio_mode;
     CallAudioMicState mic_state;
-    CallAudioBluetoothState bt_audio;
 
     /* Redo */
     gboolean loopback_enabled;
     guint total_external_cards; // Total external devices, including modem
     gboolean modem_has_usb_audio; // If it has we'll only need hifi
-    gboolean call_audio_external_needs_pass_thru;
+    gboolean call_audio_external_needs_pass_thru; // do we have a helper in alsa ucm for modem loopback?
+    
     GArray * cards;
     AudioCard *primary_card;
     AudioCard *modem_card;
-    CardConfig *source;
-    CardConfig *target;
 };
 
 G_DEFINE_TYPE(CadPulse, cad_pulse, G_TYPE_OBJECT);
@@ -162,9 +146,9 @@ static void init_source_info(pa_context *ctx, const pa_source_info *info, int eo
     }
     if (info->card == self->primary_card->card_id) {
         card = self->primary_card;
-        g_message("Source info belongs to primary card (%s)", card->card_name);
+        g_message("Source %i belongs to primary card (%s)", info->index, card->card_name);
     } else {
-        g_message("v info belongs to a secondary card");
+        g_message("Source %i belongs to a secondary card", info->index);
         for (i = 0; i < self->total_external_cards; i++) {
             card = &g_array_index( self->cards, AudioCard, i );
             if (card->card_id == info->card) {
@@ -240,9 +224,9 @@ static void init_sink_info(pa_context *ctx, const pa_sink_info *info, int eol, v
     }
     if (info->card == self->primary_card->card_id) {
         card = self->primary_card;
-        g_message("Sink info belongs to primary card (%s)", self->primary_card->card_name);
+        g_message("Sink %i belongs to primary card (%s)", info->index, self->primary_card->card_name);
     } else {
-        g_message("Sink info belongs to a secondary card");
+        g_message("Sink %i belongs to a secondary card", info->index);
         for (i = 0; i < self->total_external_cards; i++) {
             card = g_array_index( self->cards, AudioCard*, i );
             if (card->card_id == info->card) {
@@ -268,7 +252,7 @@ static void init_sink_info(pa_context *ctx, const pa_sink_info *info, int eol, v
     }
     card->sink_name = g_strdup(info->name);
 
-    g_message("Looking for ports...");
+    g_message("Looking for available ports...");
     if (card->is_primary) {
         for (i = 0; i < info->n_ports; i++) {
             port = info->ports[i];
@@ -290,31 +274,30 @@ static void init_sink_info(pa_context *ctx, const pa_sink_info *info, int eol, v
                 card->has_headphones = TRUE;
             } 
             if (strstr(g_ascii_strdown(port->name, -1), SND_USE_CASE_DEV_SPEAKER) != NULL) {
-                if (card->ports.speaker_port != NULL) {
-                    g_message("Free speaker");
-                    g_free(card->ports.speaker_port);
+                if (card->ports->speaker->port != NULL) {
+                    g_free(card->ports->speaker->port);
                 }
-                card->ports.speaker_port = g_strdup(port->name);
+                card->ports->speaker->port = g_strdup(port->name);
             } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_EARPIECE, -1)) != NULL) {
-                if (card->ports.earpiece_port) {
-                        g_free(card->ports.earpiece_port);
+                if (card->ports->earpiece->port) {
+                        g_free(card->ports->earpiece->port);
                     }
-                card->ports.earpiece_port = g_strdup(port->name);
+                card->ports->earpiece->port = g_strdup(port->name);
             } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_HEADSET, -1)) != NULL) {
-                if (card->ports.headset_port) {
-                        g_free(card->ports.headset_port);
+                if (card->ports->headset->port) {
+                        g_free(card->ports->headset->port);
                     }
-                card->ports.headset_port = g_strdup(port->name);
+                card->ports->headset->port = g_strdup(port->name);
             } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_HANDSET, -1)) != NULL) {
-                if (card->ports.handset_port) {
-                        g_free(card->ports.handset_port);
+                if (card->ports->earpiece->port) {
+                        g_free(card->ports->earpiece->port);
                     }
-                card->ports.handset_port = g_strdup(port->name);
+                card->ports->earpiece->port = g_strdup(port->name);
             } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_HEADPHONES, -1)) != NULL) {
-                if (card->ports.headphones_port) {
-                        g_free(card->ports.headphones_port);
+                if (card->ports->headphones->port) {
+                        g_free(card->ports->headphones->port);
                     }
-                card->ports.headphones_port = g_strdup(port->name);
+                card->ports->headphones->port = g_strdup(port->name);
             } 
         }
 
@@ -383,15 +366,13 @@ static void update_card_info(pa_context *ctx, const pa_card_info *info, int eol,
     
     prop = pa_proplist_gets(info->proplist, "device.description");
     if (prop) {
-        g_message(" - Card:: %s", prop);
         this_card->card_description = g_strdup(prop);
     } else {
         g_message("No description for the card");
         this_card->card_description = g_strdup(info->name);
     }
     
-
-    g_message("Card %i, with name %s", this_card->card_id, this_card->card_name);
+    g_message("Card %i: %s, friendly name %s", this_card->card_id, this_card->card_name, this_card->card_description);
     if (strcmp(info->driver, PA_BT_DRIVER) == 0) {
         g_message(" - Card %s is a bluetooth device", this_card->card_name);
         this_card->is_bt = TRUE;
@@ -474,10 +455,18 @@ static void update_card_info(pa_context *ctx, const pa_card_info *info, int eol,
 static void init_card_info(pa_context *ctx, const pa_card_info *info, int eol, void *data)
 {
     CadPulse *self = data;
-    AudioCard *this_card = g_new0(AudioCard, 1);
     pa_operation *op;
     const gchar *prop;
     guint i;
+    
+    /* Initialize this card */
+    AudioCard *this_card = g_new0(AudioCard, 1);
+    this_card->ports = g_new0(Ports, 1);
+    this_card->ports->earpiece = g_new0(Port, 1);
+    this_card->ports->headset = g_new0(Port, 1);
+    this_card->ports->headphones = g_new0(Port, 1);
+    this_card->ports->speaker = g_new0(Port, 1);
+
     if (eol != 0 ) {
         if (!self->primary_card) {
             g_critical("No suitable card found, retrying in 3s...");
@@ -517,7 +506,6 @@ static void init_card_info(pa_context *ctx, const pa_card_info *info, int eol, v
     
     prop = pa_proplist_gets(info->proplist, "device.description");
     if (prop) {
-        g_message(" - Card:: %s", prop);
         this_card->card_description = g_strdup(prop);
     } else {
         g_message("No description for the card");
@@ -525,7 +513,7 @@ static void init_card_info(pa_context *ctx, const pa_card_info *info, int eol, v
     }
     
 
-    g_message("Card %i, with name %s", this_card->card_id, this_card->card_name);
+    g_message("Card %i: %s, friendly name %s", this_card->card_id, this_card->card_name, this_card->card_description);
     if (strcmp(info->driver, PA_BT_DRIVER) == 0) {
         g_message(" - Card %s is a bluetooth device", this_card->card_name);
         this_card->is_bt = TRUE;
@@ -958,7 +946,8 @@ static void set_card_profile(pa_context *ctx, const pa_card_info *info, int eol,
     if (info->index != operation->pulse->primary_card->card_id)
         return;
 
-    if (operation->value == CALL_AUDIO_MODE_DEFAULT) {
+    if (operation->value == CALL_AUDIO_MODE_DEFAULT ||
+        operation->value == CALL_AUDIO_MODE_UNKNOWN) {
         g_message("**** switching to default profile");
         op = pa_context_set_card_profile_by_index(ctx, operation->pulse->primary_card->card_id,
                                                   SND_USE_CASE_VERB_HIFI,
@@ -970,9 +959,11 @@ static void set_card_profile(pa_context *ctx, const pa_card_info *info, int eol,
         op = pa_context_get_sink_info_list(ctx, init_sink_info, operation->pulse);
         if (op)
             pa_operation_unref(op);
+
         op = pa_context_get_source_info_list(ctx, init_source_info, operation->pulse);
         if (op)
             pa_operation_unref(op);
+
         // If there's no external card, we switch to earpiece directly
         if (!operation->pulse->total_external_cards) {
             cad_operation = g_new0(CadOperation, 1);
@@ -1197,7 +1188,6 @@ GVariant *cad_pulse_get_available_devices(void)
     GVariantBuilder *device;
     guint device_type = 0;
     device = g_variant_builder_new(G_VARIANT_TYPE("a(buuus)"));
-    g_message("*** TOTAL CARDS: %i", self->total_external_cards);
     if (self->primary_card->has_earpiece) {
         tmpcard = g_strdup_printf("Earpiece");
         g_variant_builder_add(device, "(buuus)", self->primary_card->is_active, self->primary_card->card_id, device_type, 0, tmpcard);
@@ -1343,25 +1333,25 @@ void cad_pulse_set_output_device(guint device_id, guint device_verb, CadOperatio
         case CAD_PULSE_DEVICE_VERB_EARPIECE: // Earpiece / Handset
             g_message("Primary card: Earpiece");
             op = pa_context_set_sink_port_by_index(operation->pulse->ctx, target_card->sink_id,
-                                               target_card->ports.earpiece_port,
+                                               target_card->ports->earpiece->port,
                                                operation_complete_cb, operation);
             break;
         case CAD_PULSE_DEVICE_VERB_HEADSET: // Headset
             g_message("Primary card: Headset");
             op = pa_context_set_sink_port_by_index(operation->pulse->ctx, target_card->sink_id,
-                                               target_card->ports.headset_port,
+                                               target_card->ports->headset->port,
                                                operation_complete_cb, operation);
             break;
         case CAD_PULSE_DEVICE_VERB_SPEAKER: // Speaker
             g_message("Primary card: Speaker");
             op = pa_context_set_sink_port_by_index(operation->pulse->ctx, target_card->sink_id,
-                                               target_card->ports.speaker_port,
+                                               target_card->ports->speaker->port,
                                                operation_complete_cb, operation);
             break;
         case CAD_PULSE_DEVICE_VERB_HEADPHONES: // Headphones
             g_message("Primary card: Heaphones");
             op = pa_context_set_sink_port_by_index(operation->pulse->ctx, target_card->sink_id,
-                                    target_card->ports.headphones_port,
+                                    target_card->ports->headphones->port,
                                     operation_complete_cb, operation);
             break;
         case CAD_PULSE_DEVICE_VERB_AUTO:
@@ -1373,15 +1363,15 @@ void cad_pulse_set_output_device(guint device_id, guint device_verb, CadOperatio
             if (operation->pulse->audio_mode == CALL_AUDIO_MODE_DEFAULT) {
                 if (target_card->has_speaker) {
                     op = pa_context_set_sink_port_by_index(operation->pulse->ctx, target_card->sink_id,
-                                    target_card->ports.speaker_port,
+                                    target_card->ports->speaker->port,
                                     operation_complete_cb, operation);
                 } else if (target_card->has_headphones) {
                     op = pa_context_set_sink_port_by_index(operation->pulse->ctx, target_card->sink_id,
-                                    target_card->ports.headphones_port,
+                                    target_card->ports->headphones->port,
                                     operation_complete_cb, operation);
                 } else if (target_card->has_headset) {
                     op = pa_context_set_sink_port_by_index(operation->pulse->ctx, target_card->sink_id,
-                                    target_card->ports.headset_port,
+                                    target_card->ports->headset->port,
                                     operation_complete_cb, operation);
                 } else {
                     g_message("No port to setup in auto mode");
@@ -1389,19 +1379,19 @@ void cad_pulse_set_output_device(guint device_id, guint device_verb, CadOperatio
             } else {
                  if (target_card->has_earpiece) {
                     op = pa_context_set_sink_port_by_index(operation->pulse->ctx, target_card->sink_id,
-                                    target_card->ports.earpiece_port,
+                                    target_card->ports->earpiece->port,
                                     operation_complete_cb, operation);
                 } else if (target_card->has_headset) {
                     op = pa_context_set_sink_port_by_index(operation->pulse->ctx, target_card->sink_id,
-                                    target_card->ports.headset_port,
+                                    target_card->ports->headset->port,
                                     operation_complete_cb, operation);
                 } else if (target_card->has_headphones) {
                     op = pa_context_set_sink_port_by_index(operation->pulse->ctx, target_card->sink_id,
-                                    target_card->ports.headphones_port,
+                                    target_card->ports->headphones->port,
                                     operation_complete_cb, operation);
                 } else if (target_card->has_speaker) {
                     op = pa_context_set_sink_port_by_index(operation->pulse->ctx, target_card->sink_id,
-                                    target_card->ports.speaker_port,
+                                    target_card->ports->speaker->port,
                                     operation_complete_cb, operation);
                 } else {
                     g_message("No port to setup in auto mode");
