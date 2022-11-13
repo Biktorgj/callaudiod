@@ -377,14 +377,11 @@ CallAudioMicState call_audio_get_mic_state(void)
  */
 GVariant *call_audio_get_available_devices(void)
 {
-
-    g_critical("%s: Requested available devices 1", __func__);
     if (!_initted) {
         g_critical("%s wasnt initialized!!!", __func__);
     }
 
     return call_audio_dbus_call_audio_get_available_devices(_proxy);
-
 }
 
 /* SET OUTPUT DEVICES */
