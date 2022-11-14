@@ -53,6 +53,9 @@ typedef struct _Ports {
     Port *headset;
     Port *headphones;
     Port *speaker;
+    Port *primary_mic;
+    Port *headset_mic;
+    Port *headphones_mic;
 } Ports;
 
 typedef struct _AudioCard
@@ -69,8 +72,8 @@ typedef struct _AudioCard
    gboolean has_voice_profile;
    Ports *ports;
    int sink_id;
-   gchar *sink_name;
    int source_id;
+   gchar *sink_name;
    gchar *source_name;
 } AudioCard;
 
@@ -156,27 +159,33 @@ static void init_source_info(pa_context *ctx, const pa_source_info *info, int eo
 
     g_message("Source ID: %i (%s)", info->index, info->name);
     if (info->monitor_of_sink != PA_INVALID_INDEX) {
-        g_message("Source is a monitor of another sink. We can't use this (card id %i, source %i is monitor of sink %i)", info->card, info->index, info->monitor_of_sink);
+        g_message("Source %s is a monitor of another sink. We can't use this (card id %i, source %i is monitor of sink %i)", info->name, info->card, info->index, info->monitor_of_sink);
         return;
     }
 
     card->source_id = info->index;
     card->source_name = g_strdup(info->name);
-    g_message("STORE::: %s", card->source_name);
-    /* 
-     *  IMPORTANT
-     *      Order here is important
-     callaudiod-pulse-Message: 18:06:37.564: - Port found in sink 55: analog-input-internal-mic
-callaudiod-pulse-Message: 18:06:37.564: - Port found in sink 55: analog-input-headphone-mic
-callaudiod-pulse-Message: 18:06:37.564: - Port found in sink 55: analog-input-headset-mic
-        If we just look for "Mic" the first thing, we might not get the mic we want
-     *
-     *
-     */
     if (card->is_primary) {
+        card->ports->primary_mic->available = FALSE;
+        card->ports->headset_mic->available = FALSE;
+        card->ports->headphones_mic->available = FALSE;
         for (i = 0; i < info->n_ports; i++) {
             pa_source_port_info *port = info->ports[i];
-            g_message("- Port found in sink %i: %s", info->index, port->name);
+            g_message("- Port found in source %i: %s", info->index, port->name);
+            g_message(" - Card port %s, avail %i", port->name, port->available);
+            if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_HEADSET, -1)) != NULL &&
+                (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+                card->ports->headset_mic->available = TRUE;
+                card->ports->headset_mic->port = g_strdup(port->name);
+            } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_HEADPHONES, -1)) != NULL&&
+                (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+                card->ports->headphones_mic->available = TRUE;
+                card->ports->headphones_mic->port = g_strdup(port->name);
+            } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_MIC, -1)) != NULL &&
+                (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+                card->ports->primary_mic->available = TRUE;
+                card->ports->primary_mic->port = g_strdup(port->name);
+            } 
         }
     op = pa_context_set_default_source(ctx, info->name, NULL, NULL);
     if (op)
@@ -437,6 +446,9 @@ static void init_card_info(pa_context *ctx, const pa_card_info *info, int eol, v
     this_card->ports->headset = g_new0(Port, 1);
     this_card->ports->headphones = g_new0(Port, 1);
     this_card->ports->speaker = g_new0(Port, 1);
+    this_card->ports->primary_mic = g_new0(Port, 1);
+    this_card->ports->headset_mic = g_new0(Port, 1);
+    this_card->ports->headphones_mic = g_new0(Port, 1);
 
     if (eol != 0 ) {
         if (!self->primary_card) {
@@ -945,6 +957,7 @@ static void set_card_profile(pa_context *ctx, const pa_card_info *info, int eol,
     if (operation->value == CALL_AUDIO_MODE_DEFAULT ||
         operation->value == CALL_AUDIO_MODE_UNKNOWN) {
         g_message("**** switching to default profile");
+        operation->pulse->audio_mode = CALL_AUDIO_MODE_DEFAULT;
         op = pa_context_set_card_profile_by_index(ctx, operation->pulse->primary_card->card_id,
                                                   SND_USE_CASE_VERB_HIFI,
                                                   NULL, NULL);
@@ -975,9 +988,8 @@ static void set_card_profile(pa_context *ctx, const pa_card_info *info, int eol,
             }
             cad_operation = g_new0(CadOperation, 1);
             cad_operation->type = CAD_OPERATION_OUTPUT_DEVICE;
-            /* TODO: Do we default to speaker or autodetect from the device?
-               I'd normally send a -1, but this is a uint and I don't want to change it...
-            */
+
+            /* We're just switching but audio_mode isn't still set */
             cad_pulse_set_output_device(card->card_id, CAD_PULSE_DEVICE_VERB_AUTO, cad_operation);
         }
         
@@ -1205,7 +1217,7 @@ static gboolean is_dev_active(guint dev_id, guint dev_verb) {
     if (dev_id == self->current_active_dev && dev_verb == self->current_active_verb)
         return TRUE;
 
-        g_message("Device ID %i Verb %i Active NO", dev_id, dev_verb);
+    g_message("Device ID %i Verb %i Active NO", dev_id, dev_verb);
     return FALSE;
 }
 GVariant *cad_pulse_get_available_devices(void) 
@@ -1401,6 +1413,11 @@ void cad_pulse_set_output_device(guint device_id, guint device_verb, CadOperatio
                 op = pa_context_set_sink_port_by_index(operation->pulse->ctx, target_card->sink_id,
                                                 target_card->ports->earpiece->port,
                                                 NULL, NULL);
+                if (op)
+                    pa_operation_unref(op);
+                op = pa_context_set_source_port_by_index(operation->pulse->ctx, target_card->source_id,
+                                                target_card->ports->primary_mic->port,
+                                                NULL, NULL);
                 self->current_active_dev = target_card->card_id;
                 self->current_active_verb = device_verb;
                 break;
@@ -1408,6 +1425,11 @@ void cad_pulse_set_output_device(guint device_id, guint device_verb, CadOperatio
                 g_message("Primary card: Headset: %s", target_card->ports->headset->port);
                 op = pa_context_set_sink_port_by_index(operation->pulse->ctx, target_card->sink_id,
                                                 target_card->ports->headset->port,
+                                                NULL, NULL);
+                if (op)
+                    pa_operation_unref(op);
+                op = pa_context_set_source_port_by_index(operation->pulse->ctx, target_card->source_id,
+                                                target_card->ports->headset_mic->port,
                                                 NULL, NULL);
                 self->current_active_dev = target_card->card_id;
                 self->current_active_verb = device_verb;
@@ -1417,14 +1439,25 @@ void cad_pulse_set_output_device(guint device_id, guint device_verb, CadOperatio
                 op = pa_context_set_sink_port_by_index(operation->pulse->ctx, target_card->sink_id,
                                                 target_card->ports->speaker->port,
                                                 NULL, NULL);
+                if (op)
+                    pa_operation_unref(op);
+                op = pa_context_set_source_port_by_index(operation->pulse->ctx, target_card->source_id,
+                                                target_card->ports->primary_mic->port,
+                                                NULL, NULL);
                 self->current_active_dev = target_card->card_id;
                 self->current_active_verb = device_verb;
                 break;
-            case CAD_PULSE_DEVICE_VERB_HEADPHONES: // Headphones
+            case CAD_PULSE_DEVICE_VERB_HEADPHONES: // Headphones: Shall we use the primary or headset mic here?
+                // Not all headsets might be detected as headsets...
                 g_message("Primary card: Heaphones %s",target_card->ports->headphones->port);
                 op = pa_context_set_sink_port_by_index(operation->pulse->ctx, target_card->sink_id,
                                         target_card->ports->headphones->port,
                                         NULL, NULL);
+                if (op)
+                    pa_operation_unref(op);
+                op = pa_context_set_source_port_by_index(operation->pulse->ctx, target_card->source_id,
+                                                target_card->ports->headphones_mic->port,
+                                                NULL, NULL);
                 self->current_active_dev = target_card->card_id;
                 self->current_active_verb = device_verb;
                 break;
