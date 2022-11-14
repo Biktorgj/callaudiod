@@ -234,9 +234,15 @@ static void init_sink_info(pa_context *ctx, const pa_sink_info *info, int eol, v
      */
     card->sink_id = info->index;
     card->sink_name = g_strdup(info->name);
-
     g_message("Looking for available ports...");
     if (card->is_primary) {
+        /* We'll disable all ports first, then enable only the ones that are actually active */
+        card->ports->speaker->available = FALSE;
+        card->ports->earpiece->available = FALSE;
+        card->ports->headset->available = FALSE;
+        card->ports->headset->available = FALSE;
+        card->ports->headphones->available = FALSE;
+
         for (i = 0; i < info->n_ports; i++) {
             port = info->ports[i];
             g_message(" - Card port %s, avail %i", port->name, port->available);
@@ -693,6 +699,27 @@ static void changed_cb(pa_context *ctx, pa_subscription_event_type_t type, uint3
 
 }
 
+static void unload_loopback_callback(pa_context *ctx, const pa_module_info *info, int eol, void *data)
+{
+    pa_operation *op = NULL;
+
+    if (eol != 0)
+        return;
+
+    if (!info) {
+        g_critical("PA returned no sink info (eol=%d)", eol);
+        return;
+    }
+
+    if (strcmp(info->name, "module-loopback") == 0) {
+        g_message("Unloading '%s'", info->name);
+        op = pa_context_unload_module(ctx, info->index, NULL, NULL);
+        if (op)
+            pa_operation_unref(op);
+    }
+    return;
+}
+
 static void pulse_state_cb(pa_context *ctx, void *data)
 {
     CadPulse *self = data;
@@ -893,7 +920,9 @@ static void set_card_profile(pa_context *ctx, const pa_card_info *info, int eol,
     pa_operation *op = NULL;
     AudioCard *card;
     CadOperation *cad_operation;
+    CadOperation *set_def_output_external;
     CadPulse *self = cad_pulse_get_default();
+
     g_message("%s: start", __func__);
     if (eol != 0)
         return;
@@ -989,7 +1018,7 @@ static void set_card_profile(pa_context *ctx, const pa_card_info *info, int eol,
             card = operation->pulse->primary_card;
         }
 
-        CadOperation *set_def_output_external = g_new0(CadOperation, 1);
+        set_def_output_external = g_new0(CadOperation, 1);
         set_def_output_external->type = CAD_OPERATION_OUTPUT_DEVICE;
         cad_pulse_set_output_device(card->card_id, CAD_PULSE_DEVICE_VERB_AUTO, set_def_output_external);
     } else {
@@ -1010,6 +1039,7 @@ error:
  */
 void cad_pulse_select_mode(CallAudioMode mode, CadOperation *cad_op)
 {
+    CadOperation *unmute_op;
     CadPulseOperation *operation = g_new(CadPulseOperation, 1);
     pa_operation *op = NULL;
     g_message("%s: Called with mode %i", __func__, mode);
@@ -1032,6 +1062,14 @@ void cad_pulse_select_mode(CallAudioMode mode, CadOperation *cad_op)
 
     switch (mode) {
         case CALL_AUDIO_MODE_DEFAULT: 
+            if (operation->pulse->loopback_enabled) {
+                // KILL THE LOOPBACK
+                op = pa_context_get_module_info_list(operation->pulse->ctx, unload_loopback_callback, NULL);
+                if (op)
+                    pa_operation_unref(op);
+                    
+                operation->pulse->loopback_enabled = FALSE;
+            }
             op = pa_context_set_card_profile_by_index(operation->pulse->ctx, operation->pulse->primary_card->card_id,
                                                   SND_USE_CASE_VERB_HIFI,
                                                   NULL, NULL);
@@ -1039,7 +1077,7 @@ void cad_pulse_select_mode(CallAudioMode mode, CadOperation *cad_op)
                 pa_operation_unref(op);
 
             
-            CadOperation *unmute_op = g_new0(CadOperation, 1);
+            unmute_op = g_new0(CadOperation, 1);
             unmute_op->type = CAD_OPERATION_MUTE_MIC;
             cad_pulse_mute_mic(FALSE, unmute_op);
             operation_complete_cb(operation->pulse->ctx, 1, operation);
@@ -1163,8 +1201,11 @@ CallAudioMicState cad_pulse_get_mic_state(void)
 static gboolean is_dev_active(guint dev_id, guint dev_verb) {
     CadPulse *self = cad_pulse_get_default();
     if (dev_id == self->current_active_dev && dev_verb == self->current_active_verb)
+        g_message("Device ID %i Verb %i Active YES", dev_id, dev_verb);
+    if (dev_id == self->current_active_dev && dev_verb == self->current_active_verb)
         return TRUE;
 
+        g_message("Device ID %i Verb %i Active NO", dev_id, dev_verb);
     return FALSE;
 }
 GVariant *cad_pulse_get_available_devices(void) 
@@ -1244,27 +1285,6 @@ GVariant *cad_pulse_get_available_devices(void)
     return devices;
 }
 
-static void unload_loopback_callback(pa_context *ctx, const pa_module_info *info, int eol, void *data)
-{
-    pa_operation *op = NULL;
-
-    if (eol != 0)
-        return;
-
-    if (!info) {
-        g_critical("PA returned no sink info (eol=%d)", eol);
-        return;
-    }
-
-    if (strcmp(info->name, "module-loopback") == 0) {
-        g_message("Unloading '%s'", info->name);
-        op = pa_context_unload_module(ctx, info->index, NULL, NULL);
-        if (op)
-            pa_operation_unref(op);
-    }
-    return;
-}
-
 void cad_pulse_set_output_device(guint device_id, guint device_verb, CadOperation *cad_op) {
     CadPulseOperation *operation = g_new(CadPulseOperation, 1);
     pa_operation *op = NULL;
@@ -1302,11 +1322,12 @@ void cad_pulse_set_output_device(guint device_id, guint device_verb, CadOperatio
     }
 
     if (self->loopback_enabled) {
-        self->loopback_enabled = FALSE;
         // KILL THE LOOPBACK
         op = pa_context_get_module_info_list(operation->pulse->ctx, unload_loopback_callback, NULL);
         if (op)
             pa_operation_unref(op);
+
+        self->loopback_enabled = FALSE;
     }
     if (device_id == self->primary_card->card_id) {
         g_message("%s Requesting a verb for the same card", __func__);
@@ -1414,15 +1435,64 @@ void cad_pulse_set_output_device(guint device_id, guint device_verb, CadOperatio
         }
         if (op)
             pa_operation_unref(op);
-    }
-    /*
-        Now let's try to handle the loopbacks:
-        
+    }  
+    /* Librem will always need to use a loopback 
+     * Since we know which one is our target card by now,
+     * we should only need to loop between it and the modem
+     * and everything else should just work (tm)
     */
-    else if (!target_card->is_primary && !operation->pulse->modem_has_usb_audio) {
+    if (operation->pulse->modem_has_usb_audio) {
+        if (!target_card->is_primary) {
+            self->current_active_dev = target_card->card_id;
+            self->current_active_verb = CAD_PULSE_DEVICE_VERB_HEADPHONES;
+            if (target_card->is_bt) {
+                self->current_active_verb = CAD_PULSE_DEVICE_VERB_HEADSET;
+            } else if (target_card->is_usb) {
+                self->current_active_verb = CAD_PULSE_DEVICE_VERB_HEADSET;
+            }
+        }
+        g_message("TARGET: Source %i %s | Sink %i %s", target_card->source_id, target_card->source_name, target_card->sink_id, target_card->sink_name);
+        self->loopback_enabled = TRUE;
+        loopback_bt_source_arg = g_strdup_printf("source=%s sink=%s", target_card->source_name, operation->pulse->modem_card->sink_name); 
+        loopback_int_source_arg = g_strdup_printf("source=%s sink=%s", operation->pulse->modem_card->source_name, target_card->sink_name); 
+        g_message("From BT to modem: %s", loopback_bt_source_arg);
+        g_message("From modem to BT: %s", loopback_int_source_arg);
+
+        op = pa_context_load_module (operation->pulse->ctx,
+                                "module-loopback",
+                                loopback_bt_source_arg,
+                                NULL,
+                                NULL);
+        if (op)
+            pa_operation_unref(op);
+        op = pa_context_load_module (operation->pulse->ctx,
+                                "module-loopback",
+                                loopback_int_source_arg,
+                                NULL,
+                                NULL);
+        if (op)
+            pa_operation_unref(op);
+    } 
+    
+    /* This needs to be splitted too... 
+        - PinePhone only needs to set the bluetooth profile when using a BT adapter
+        - PinePhone will need a loopback when using USBC headset
+        - PinePhonePro will need a loopback for both cases. 
+      Find if the adapter is_bt and if main card has a bluetooth profile
+      Otherwise, use the loopbacks
+    */
+    if (!target_card->is_primary && !operation->pulse->modem_has_usb_audio) {
+        self->current_active_dev = target_card->card_id;
+        self->current_active_verb = CAD_PULSE_DEVICE_VERB_HEADPHONES;
+        if (target_card->is_bt) {
+            self->current_active_verb = CAD_PULSE_DEVICE_VERB_HEADSET;
+        } else if (target_card->is_usb) {
+            self->current_active_verb = CAD_PULSE_DEVICE_VERB_HEADSET;
+        }
         g_message("TARGET: Source %i %s | Sink %i %s", target_card->source_id, target_card->source_name, target_card->sink_id, target_card->sink_name);
         /* Only for the PPP or a phone that needs to set up a specific verb in alsa *and* a loopback */
         if (operation->pulse->call_audio_external_needs_pass_thru) {
+            g_message("**** WARNING: We need to set a specific sink and source for bluetooth in this device");
             op = pa_context_set_sink_port_by_index(operation->pulse->ctx, operation->pulse->primary_card->sink_id,
                                     PA_MODEM_LOOPBACKPORT,
                                     NULL, NULL);
@@ -1457,6 +1527,7 @@ void cad_pulse_set_output_device(guint device_id, guint device_verb, CadOperatio
     }
     g_message("%s finishing", __func__);
     operation_complete_cb(operation->pulse->ctx, 1, operation);
+    g_object_set(self->manager, "available-devices", cad_pulse_get_available_devices(), NULL);
 
     return;
 
