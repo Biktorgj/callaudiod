@@ -8,7 +8,7 @@
 project (
   'callaudiod',
   'c',
-  version : '0.1.4',
+  version : '0.1.5',
   license : 'LGPLv3+',
   meson_version : '>= 0.50.0',
   default_options :
