@@ -853,6 +853,9 @@ static void operation_complete_cb(pa_context *ctx, int success, void *data)
                         g_object_set(operation->pulse->manager, "audio-mode", new_value, NULL);
                     }
                     break;
+                case CAD_OPERATION_ENABLE_SPEAKER:
+                        g_object_set(operation->pulse->manager, "speaker-state", new_value, NULL);
+                    break;
                 case CAD_OPERATION_MUTE_MIC:
                     /*
                      * "Mute mic" operation's value is TRUE (1) for muting the mic,
@@ -1514,6 +1517,97 @@ void cad_pulse_set_output_device(guint device_id, guint device_verb, CadOperatio
         if (op)
             pa_operation_unref(op);
     }
+    g_message("%s finishing", __func__);
+    g_object_set(operation->pulse->manager, "available-devices", cad_pulse_get_available_devices(), NULL);
+    operation_complete_cb(operation->pulse->ctx, 1, operation);
+
+    return;
+
+error:
+    g_message("%s oops", __func__);
+    if (cad_op) {
+        cad_op->success = FALSE;
+        if (cad_op->callback)
+            cad_op->callback(cad_op);
+    }
+    if (operation)
+        free(operation);
+
+}
+
+
+void cad_pulse_switch_speaker(gboolean enable, CadOperation *cad_op) {
+    CadPulseOperation *operation = g_new(CadPulseOperation, 1);
+    pa_operation *op = NULL;
+    AudioCard *target_card = NULL;
+    if (!cad_op) {
+        g_critical("%s: no callaudiod operation", __func__);
+        goto error;
+    }
+
+    /*
+     * Make sure cad_op is of the correct type!
+     */
+    g_assert(cad_op->type == CAD_OPERATION_ENABLE_SPEAKER);
+
+    operation->pulse = cad_pulse_get_default();
+    /* Let's begin */
+    /*
+     * First things first:
+     *  1. Know if the requested device_id is the same as the primary card
+     *      --> If it is, just switch ports
+     *      --> If it isn't, set up the loopback module
+     *  2. Know if we're using an internal or external modem
+            --> If we are using an external modem, we also need to make a loopback with the
+     */
+/*
+        g_message("%s", __func__);
+        g_message("%s", __func__);
+*/
+    if (!operation->pulse->primary_card) {
+        g_critical("Primary card not found, can't continue");
+        return;
+    }
+
+    if (operation->pulse->current_active_dev == operation->pulse->primary_card->card_id) {
+        g_message("%s Requesting a verb for the same card", __func__);
+        target_card = operation->pulse->primary_card;
+    } else {
+        g_message("%s Requesting output to a different card (%i), looking for it...", __func__, operation->pulse->current_active_dev);
+        for (int i = 0; i < operation->pulse->total_external_cards; i++) {
+            target_card = g_array_index( operation->pulse->cards, AudioCard *, i );
+            if (operation->pulse->current_active_dev == target_card->card_id) {
+                g_message("Found it: %s (%s)", target_card->card_description, target_card->card_name);
+                break;
+            }
+        }
+    }
+    if (!target_card) {
+        g_critical("Couldn't find the target card, can't continue");
+        return;
+    }
+
+    if (target_card->is_primary) {
+        g_message("Target card SINK ID: %i", target_card->sink_id);
+        g_message("Target card SOURCE ID: %i", target_card->source_id);
+        if (operation->pulse->current_active_verb == CAD_PULSE_DEVICE_VERB_EARPIECE && enable) {
+            g_message("Primary card: Speaker%s",target_card->ports->speaker->port);
+            op = pa_context_set_sink_port_by_index(operation->pulse->ctx, target_card->sink_id,
+                                            target_card->ports->speaker->port,
+                                            NULL, NULL);
+            if (op)
+                pa_operation_unref(op);
+            operation->pulse->current_active_verb = 2;
+        } else if (operation->pulse->current_active_verb == CAD_PULSE_DEVICE_VERB_SPEAKER && !enable) {
+            op = pa_context_set_sink_port_by_index(operation->pulse->ctx, target_card->sink_id,
+                                            target_card->ports->earpiece->port,
+                                            NULL, NULL);
+            if (op)
+                pa_operation_unref(op);
+            operation->pulse->current_active_verb = 0;
+        }
+    }
+
     g_message("%s finishing", __func__);
     g_object_set(operation->pulse->manager, "available-devices", cad_pulse_get_available_devices(), NULL);
     operation_complete_cb(operation->pulse->ctx, 1, operation);

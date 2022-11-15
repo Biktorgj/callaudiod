@@ -35,6 +35,9 @@ static void complete_command_cb(CadOperation *op)
         case CAD_OPERATION_SELECT_MODE:
             call_audio_dbus_call_audio_complete_select_mode(op->object, op->invocation, op->success);
             break;
+        case CAD_OPERATION_ENABLE_SPEAKER:
+            call_audio_dbus_call_audio_complete_enable_speaker(op->object, op->invocation, op->success);
+            break;
         case CAD_OPERATION_MUTE_MIC:
             call_audio_dbus_call_audio_complete_mute_mic(op->object, op->invocation, op->success);
             break;
@@ -96,6 +99,33 @@ static CallAudioMode
 cad_manager_get_audio_mode(CallAudioDbusCallAudio *object)
 {
     return cad_pulse_get_audio_mode();
+}
+
+static gboolean cad_manager_handle_enable_speaker(CallAudioDbusCallAudio *object,
+                                                  GDBusMethodInvocation *invocation,
+                                                  gboolean enable)
+{
+    CadOperation *op;
+
+    op = g_new(CadOperation, 1);
+    if (!op) {
+        g_critical("Unable to allocate memory for speaker operation");
+        g_dbus_method_invocation_return_error(invocation, G_DBUS_ERROR,
+                                              G_DBUS_ERROR_NO_MEMORY,
+                                              "Failed to allocate operation");
+        return FALSE;
+    }
+
+    op->type = CAD_OPERATION_ENABLE_SPEAKER;
+    op->value = GUINT_TO_POINTER(enable ? CALL_AUDIO_SPEAKER_ON : CALL_AUDIO_SPEAKER_OFF);
+    op->object = object;
+    op->invocation = invocation;
+    op->callback = complete_command_cb;
+
+    g_message("Enable speaker: %d", enable);
+    cad_pulse_switch_speaker(enable, op);
+
+    return TRUE;
 }
 
 static gboolean cad_manager_handle_mute_mic(CallAudioDbusCallAudio *object,
@@ -167,6 +197,7 @@ static void cad_manager_call_audio_iface_init(CallAudioDbusCallAudioIface *iface
 {
     iface->handle_select_mode = cad_manager_handle_select_mode;
     iface->get_audio_mode = cad_manager_get_audio_mode;
+    iface->handle_enable_speaker = cad_manager_handle_enable_speaker;
     iface->handle_mute_mic = cad_manager_handle_mute_mic;
     iface->get_mic_state = cad_manager_get_mic_state;
     iface->get_available_devices = cad_manager_get_available_devices;

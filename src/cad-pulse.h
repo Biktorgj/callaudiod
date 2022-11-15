@@ -37,4 +37,6 @@ CallAudioMode cad_pulse_get_audio_mode(void);
 CallAudioMicState cad_pulse_get_mic_state(void);
 GVariant *cad_pulse_get_available_devices(void);
 void cad_pulse_set_output_device(guint device_id, guint device_verb, CadOperation *cad_op);
+void cad_pulse_switch_speaker(gboolean enable, CadOperation *cad_op);
+
 G_END_DECLS
