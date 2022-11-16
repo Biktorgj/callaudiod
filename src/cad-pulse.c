@@ -29,8 +29,10 @@
 #define CARD_MODEM_NAME "Modem"
 #define PA_BT_DRIVER "module-bluez5-device.c"
 #define PA_BT_PREFERRED_PROFILE "handsfree_head_unit"
-#define PA_MODEM_LOOPBACKPORT "ModemLoopback"
+#define PA_BT_A2DP_PROFILE "a2dp_sink"
 
+#define MODEM_LOOPBACK_CAPTURE "Line In"
+#define MODEM_LOOPBACK_PLAYBACK "Line Out"
 /*
  *  TODO:
  *      - External USB Modem
@@ -56,6 +58,8 @@ typedef struct _Ports {
     Port *primary_mic;
     Port *headset_mic;
     Port *headphones_mic;
+    Port *passthru_in;
+    Port *passthru_out;
 } Ports;
 
 typedef struct _AudioCard
@@ -196,6 +200,11 @@ static void init_source_info(pa_context *ctx, const pa_source_info *info, int eo
                 (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
                 card->ports->primary_mic->available = TRUE;
                 card->ports->primary_mic->port = g_strdup(port->name);
+            } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(MODEM_LOOPBACK_CAPTURE, -1)) != NULL &&
+                (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+                g_message("_Loopback port found: %s", port->name);
+                card->ports->passthru_in->available = TRUE;
+                card->ports->passthru_in->port = g_strdup(port->name);
             } 
         }
     op = pa_context_set_default_source(ctx, info->name, NULL, NULL);
@@ -271,6 +280,11 @@ static void init_sink_info(pa_context *ctx, const pa_sink_info *info, int eol, v
                 (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
                 card->ports->headphones->available = TRUE;
                 card->ports->headphones->port = g_strdup(port->name);
+            }  else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(MODEM_LOOPBACK_PLAYBACK, -1)) != NULL &&
+                (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+                g_message("_Loopback port found: %s", port->name);
+                card->ports->passthru_out->available = TRUE;
+                card->ports->passthru_out->port = g_strdup(port->name);
             } 
         }
 
@@ -411,6 +425,8 @@ static void init_card_info(pa_context *ctx, const pa_card_info *info, int eol, v
     this_card->ports->primary_mic = g_new0(Port, 1);
     this_card->ports->headset_mic = g_new0(Port, 1);
     this_card->ports->headphones_mic = g_new0(Port, 1);
+    this_card->ports->passthru_in = g_new0(Port, 1);
+    this_card->ports->passthru_out = g_new0(Port, 1);
 
     if (eol != 0 ) {
         if (!self->primary_card) {
@@ -508,8 +524,10 @@ static void init_card_info(pa_context *ctx, const pa_card_info *info, int eol, v
         } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_HEADPHONES, -1)) != NULL &&
             (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
             this_card->ports->headphones->available = TRUE;
-        } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(PA_MODEM_LOOPBACKPORT, -1)) != NULL)  {
+        } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(MODEM_LOOPBACK_PLAYBACK, -1)) != NULL)  {
             self->call_audio_external_needs_pass_thru = TRUE;
+             g_message("_Loopback port found: %s", port->name);
+
         } 
     }
 
@@ -557,6 +575,15 @@ static void init_card_info(pa_context *ctx, const pa_card_info *info, int eol, v
             op = pa_context_set_card_profile_by_index(self->ctx, this_card->card_id,
                                                   PA_BT_PREFERRED_PROFILE,
                                                   NULL, NULL);
+            if (op)
+                pa_operation_unref(op);
+        } else if (this_card->is_bt && self->audio_mode == CALL_AUDIO_MODE_DEFAULT) {
+            g_message("** OUT OF CALL: Switch BT device: %s to %s", this_card->card_description, PA_BT_A2DP_PROFILE);
+            op = pa_context_set_card_profile_by_index(self->ctx, this_card->card_id,
+                                                  PA_BT_A2DP_PROFILE,
+                                                  NULL, NULL);
+            if (op)
+                pa_operation_unref(op);
         }
     }
 
@@ -948,11 +975,27 @@ static void set_card_profile(pa_context *ctx, const pa_card_info *info, int eol,
                 g_critical("%s: Couldn't retrieve the external card data", __func__);
                 return;
             }
-            cad_operation = g_new0(CadOperation, 1);
-            cad_operation->type = CAD_OPERATION_OUTPUT_DEVICE;
-            cad_pulse_set_output_device(card->card_id, CAD_PULSE_DEVICE_VERB_AUTO, cad_operation);
+
+            if (card->is_bt) {
+                op = pa_context_set_card_profile_by_index(operation->pulse->ctx, card->card_id,
+                                                            PA_BT_A2DP_PROFILE,
+                                                            NULL, NULL);
+                if (op)
+                    pa_operation_unref(op);
+
+                op = pa_context_set_default_source(operation->pulse->ctx, card->source_name, NULL, NULL);
+                if (op)
+                    pa_operation_unref(op);
+
+                op = pa_context_set_default_source(operation->pulse->ctx, card->sink_name, NULL, NULL);
+                if (op)
+                    pa_operation_unref(op);
+
+                cad_operation = g_new0(CadOperation, 1);
+                cad_operation->type = CAD_OPERATION_OUTPUT_DEVICE;
+                cad_pulse_set_output_device(card->card_id, CAD_PULSE_DEVICE_VERB_AUTO, cad_operation);
+            }
         }
-        
     } else if (operation->value == CALL_AUDIO_MODE_CALL) {
         g_message("***** switching to voice profile");
         op = pa_context_set_card_profile_by_index(ctx, operation->pulse->primary_card->card_id,
@@ -1224,7 +1267,6 @@ GVariant *cad_pulse_get_available_devices(void)
     } 
 
     for (int i = 0; i < self->total_external_cards; i++) {
-        g_critical("%s: %i", __func__, i);
         card = g_array_index( self->cards, AudioCard*, i );
         if (!card) {
             g_message("Card disappeared!");
@@ -1434,6 +1476,7 @@ void cad_pulse_set_output_device(guint device_id, guint device_verb, CadOperatio
      * and everything else should just work (tm)
     */
     if (operation->pulse->modem_has_usb_audio) {
+        g_message("** USB MODEM AUDIO ENABLED");
         if (!target_card->is_primary) {
             operation->pulse->current_active_dev = target_card->card_id;
             operation->pulse->current_active_verb = CAD_PULSE_DEVICE_VERB_HEADPHONES;
@@ -1474,6 +1517,7 @@ void cad_pulse_set_output_device(guint device_id, guint device_verb, CadOperatio
       Otherwise, use the loopbacks
     */
     if (!target_card->is_primary && !operation->pulse->modem_has_usb_audio) {
+        g_message("INTERNAL MODEM AUDIO AND EXTERNAL HEADSET");
         operation->pulse->current_active_dev = target_card->card_id;
         operation->pulse->current_active_verb = CAD_PULSE_DEVICE_VERB_HEADPHONES;
         if (target_card->is_bt) {
@@ -1484,14 +1528,14 @@ void cad_pulse_set_output_device(guint device_id, guint device_verb, CadOperatio
         g_message("TARGET: Source %i %s | Sink %i %s", target_card->source_id, target_card->source_name, target_card->sink_id, target_card->sink_name);
         /* Only for the PPP or a phone that needs to set up a specific verb in alsa *and* a loopback */
         if (operation->pulse->call_audio_external_needs_pass_thru) {
-            g_message("**** WARNING: We need to set a specific sink and source for bluetooth in this device");
+            g_message("**** WARNING: We need to set a specific sink and source for bluetooth in this device PT_IN: %s, PT_OUT: %s", operation->pulse->primary_card->ports->passthru_in->port, operation->pulse->primary_card->ports->passthru_out->port );
             op = pa_context_set_sink_port_by_index(operation->pulse->ctx, operation->pulse->primary_card->sink_id,
-                                    PA_MODEM_LOOPBACKPORT,
+                                    operation->pulse->primary_card->ports->passthru_out->port,
                                     NULL, NULL);
             if (op)
                 pa_operation_unref(op);
             op = pa_context_set_source_port_by_index(operation->pulse->ctx, operation->pulse->primary_card->source_id,
-                                    PA_MODEM_LOOPBACKPORT,
+                                    operation->pulse->primary_card->ports->passthru_in->port,
                                     NULL, NULL);
             if (op)
                 pa_operation_unref(op);        
