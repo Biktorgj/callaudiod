@@ -176,7 +176,7 @@ static gboolean cad_manager_handle_output_device(CallAudioDbusCallAudio *object,
     op->invocation = invocation;
     op->callback = complete_command_cb;
 
-    cad_pulse_set_output_device(device_id, device_verb, op);
+    cad_pulse_set_output_device(device_id, device_verb, CALL_AUDIO_MODE_UNKNOWN, op);
 
     return TRUE;
 }

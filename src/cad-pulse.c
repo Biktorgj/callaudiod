@@ -569,11 +569,9 @@ static void init_card_info(pa_context *ctx, const pa_card_info *info, int eol, v
 
     g_message("External cards found: %u", self->total_external_cards);
 
-    g_message("SINKS");
     op = pa_context_get_sink_info_list(self->ctx, init_sink_info, self);
     if (op)
         pa_operation_unref(op);
-    g_message("SOURCES:");
     op = pa_context_get_source_info_list(self->ctx, init_source_info, self);
     if (op)
         pa_operation_unref(op);
@@ -1194,49 +1192,40 @@ GVariant *cad_pulse_get_available_devices(void)
     } 
 
     for (int i = 0; i < self->total_external_cards; i++) {
-        g_message("1Card id %i", i);
         card = g_array_index( self->cards, AudioCard*, i );
-        g_message("2Card id %i", i);
         if (!card) {
             g_message("Card disappeared!");
             break;
         }
-        g_message("3Card id %i", i);
         if (card->is_bt) {
             device_type = 1;
         } else if (card->is_usb) {
             device_type = 2;
         }
-        g_message("4Card id %i", i);
         if (card->ports->earpiece->available) {
-        g_message("5Card id %i", i);
             tmpcard =  g_strdup_printf("%s: Earpiece", card->card_description);
             g_variant_builder_add(device, "(buuus)", 
                                 is_dev_active(card->card_id, CAD_PULSE_DEVICE_VERB_EARPIECE), 
                                 card->card_id, device_type, CAD_PULSE_DEVICE_VERB_EARPIECE, tmpcard);
         }
         if (card->ports->headset->available) {
-        g_message("6Card id %i", i);
             tmpcard =    g_strdup_printf("%s: Headset", card->card_description);
             g_variant_builder_add(device, "(buuus)", 
                                 is_dev_active(card->card_id, CAD_PULSE_DEVICE_VERB_HEADSET), 
                                 card->card_id, device_type, CAD_PULSE_DEVICE_VERB_HEADSET, tmpcard);
         }
         if (card->ports->speaker->available) {
-        g_message("7Card id %i", i);
             tmpcard =   g_strdup_printf("%s: Speaker", card->card_description);
             g_variant_builder_add(device, "(buuus)", 
                                 is_dev_active(card->card_id, CAD_PULSE_DEVICE_VERB_SPEAKER), 
                                 card->card_id, device_type, CAD_PULSE_DEVICE_VERB_SPEAKER, tmpcard);
         }
         if (card->ports->headphones->available) {
-        g_message("8Card id %i", i);
             tmpcard =  g_strdup_printf("%s: Headphones", card->card_description);
             g_variant_builder_add(device, "(buuus)", 
                                 is_dev_active(card->card_id, CAD_PULSE_DEVICE_VERB_HEADPHONES), 
                                 card->card_id, device_type, CAD_PULSE_DEVICE_VERB_HEADPHONES, tmpcard);
         }
-        g_message("Card %i end", i);
     }
     devices = g_variant_new("a(buuus)", device);
     return devices;
