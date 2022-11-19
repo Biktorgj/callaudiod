@@ -9,6 +9,7 @@
 #include "callaudiod.h"
 #include "cad-manager.h"
 #include "cad-pulse.h"
+#include <stdint.h>
 
 #include "libcallaudio.h"
 #include <gio/gio.h>
@@ -176,7 +177,7 @@ static gboolean cad_manager_handle_output_device(CallAudioDbusCallAudio *object,
     op->invocation = invocation;
     op->callback = complete_command_cb;
 
-    cad_pulse_set_output_device(device_id, device_verb, CALL_AUDIO_MODE_UNKNOWN, op);
+    cad_pulse_set_output_device(device_id, device_verb, cad_pulse_get_audio_mode(), op);
 
     return TRUE;
 }
@@ -193,6 +194,11 @@ cad_manager_get_available_devices(CallAudioDbusCallAudio *object)
     return cad_pulse_get_available_devices();
 }
 
+static uint32_t
+cad_manager_get_output_device_state(CallAudioDbusCallAudio *object)
+{
+    return cad_pulse_output_device_state();
+}
 static void cad_manager_call_audio_iface_init(CallAudioDbusCallAudioIface *iface)
 {
     iface->handle_select_mode = cad_manager_handle_select_mode;
@@ -202,6 +208,7 @@ static void cad_manager_call_audio_iface_init(CallAudioDbusCallAudioIface *iface
     iface->get_mic_state = cad_manager_get_mic_state;
     iface->get_available_devices = cad_manager_get_available_devices;
     iface->handle_output_device = cad_manager_handle_output_device;
+    iface->get_output_device_state = cad_manager_get_output_device_state;
 }
 
 static void cad_manager_class_init(CadManagerClass *klass)

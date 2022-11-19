@@ -9,6 +9,7 @@
 
 #include "libcallaudio.h"
 #include "cad-operation.h"
+#include <stdint.h>
 
 #include <glib-object.h>
 
@@ -43,8 +44,11 @@ void cad_pulse_mute_mic(gboolean mute, CadOperation *op);
 
 CallAudioMode cad_pulse_get_audio_mode(void);
 CallAudioMicState cad_pulse_get_mic_state(void);
+uint32_t cad_pulse_output_device_state(void);
 GVariant *cad_pulse_get_available_devices(void);
-void cad_pulse_set_output_device(guint device_id, guint device_verb, guint is_transitioning_to_mode, CadOperation *cad_op);
+void cad_pulse_set_output(uint32_t device_id, guint device_verb, guint audio_mode);
+
+void cad_pulse_set_output_device(uint32_t device_id, guint device_verb, guint audio_mode, CadOperation *cad_op);
 void cad_pulse_switch_speaker(gboolean enable, CadOperation *cad_op);
 
 G_END_DECLS
