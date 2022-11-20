@@ -155,16 +155,15 @@ static void init_source_info(pa_context *ctx, const pa_source_info *info, int eo
     pa_operation *op;
     CadPulse *self = cad_pulse_get_default();
     int i;
-    if (eol == 0) {
-            self->is_updating_sources = TRUE;
-        } else if (eol == 1) {
-            self->is_updating_sources = FALSE;
-            return;
-        } else if (eol < 0) {
-            self->is_updating_sources = FALSE;
-            return;
-        }
-
+    if (eol == 0) { // It isnt the last one
+        self->is_updating_sinks = TRUE;
+    } else if (eol == 1) { // It finished
+        self->is_updating_sinks = FALSE;
+        return;
+    } else if (eol < 0) { // Error
+        self->is_updating_sinks = FALSE;
+        return;
+    }
 
     if (!info) {
         g_critical("PA returned no source info (eol=%d)", eol);
@@ -179,44 +178,45 @@ static void init_source_info(pa_context *ctx, const pa_source_info *info, int eo
     }
 
     if (info->monitor_of_sink != PA_INVALID_INDEX) {
-        g_debug(" - Source %s is a monitor of another sink (card id %i, source %i is monitor of sink %i)", info->name, info->card, info->index, info->monitor_of_sink);
+        g_message(" - Source %s is a monitor of another sink (card id %i, source %i is monitor of sink %i)", info->name, info->card, info->index, info->monitor_of_sink);
         return;
     }
 
     card->source_id = info->index;
     card->source_name = g_strdup(info->name);
-    if (card->device_type != CAD_PULSE_DEVICE_TYPE_INTERNAL) {
-        card->ports->primary_mic->available = FALSE;
-        card->ports->headset_mic->available = FALSE;
-        card->ports->headphones_mic->available = FALSE;
-        card->ports->passthru_in->available = FALSE;
-        for (i = 0; i < info->n_ports; i++) {
-            pa_source_port_info *port = info->ports[i];
-            g_message(" - Source %i (%s)-> Port %s, available: %i", info->index, info->name, port->name, port->available);
-            if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_HEADSET, -1)) != NULL &&
-                (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
-                card->ports->headset_mic->available = TRUE;
-            } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_HEADPHONES, -1)) != NULL&&
-                (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
-                card->ports->headphones_mic->available = TRUE;
-            } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_MIC, -1)) != NULL &&
-                (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
-                card->ports->headset_mic->available = TRUE;            
-            } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_UNKNOWN_PLAYBACK, -1)) != NULL &&
-                (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
-                card->ports->headset_mic->available = TRUE;
-            } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_UNKNOWN_CAPTURE, -1)) != NULL &&
-                (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
-                card->ports->primary_mic->available = TRUE;
-            } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(MODEM_LOOPBACK_CAPTURE, -1)) != NULL &&
-                (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
-                card->ports->passthru_in->available = TRUE;
-            } 
-        }
 
-    op = pa_context_set_default_source(ctx, info->name, NULL, NULL);
-    if (op)
-        pa_operation_unref(op);
+    card->ports->primary_mic->available = FALSE;
+    card->ports->headset_mic->available = FALSE;
+    card->ports->headphones_mic->available = FALSE;
+    card->ports->passthru_in->available = FALSE;
+    for (i = 0; i < info->n_ports; i++) {
+        pa_source_port_info *port = info->ports[i];
+        g_message(" - Source %i (%s)-> Port %s, available: %i", info->index, info->name, port->name, port->available);
+        if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_HEADSET, -1)) != NULL &&
+            (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+            card->ports->headset_mic->available = TRUE;
+        } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_HEADPHONES, -1)) != NULL&&
+            (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+            card->ports->headphones_mic->available = TRUE;
+        } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_MIC, -1)) != NULL &&
+            (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+            card->ports->headset_mic->available = TRUE;            
+        } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_UNKNOWN_PLAYBACK, -1)) != NULL &&
+            (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+            card->ports->headset_mic->available = TRUE;
+        } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_UNKNOWN_CAPTURE, -1)) != NULL &&
+            (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+            card->ports->primary_mic->available = TRUE;
+        } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(MODEM_LOOPBACK_CAPTURE, -1)) != NULL &&
+            (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+            card->ports->passthru_in->available = TRUE;
+        } 
+    if (card->device_type == CAD_PULSE_DEVICE_TYPE_INTERNAL ) { // TODO: Doublecheck
+
+        op = pa_context_set_default_source(ctx, info->name, NULL, NULL);
+        if (op)
+            pa_operation_unref(op);
+        }
     }
 }
 
@@ -258,55 +258,53 @@ static void init_sink_info(pa_context *ctx, const pa_sink_info *info, int eol, v
 
     card->sink_id = info->index;
     card->sink_name = g_strdup(info->name);
-    
+
+    /* 
+        * Note we can get here both from init_card_info or update_card_info
+        * Headphones/ headset could have been available earlier so we reset
+        * the availability state of all devices, and if they're still there
+        * we'll enable them again
+        */
+    card->ports->speaker->available = FALSE;
+    card->ports->earpiece->available = FALSE;
+    card->ports->headset->available = FALSE;
+    card->ports->headset->available = FALSE;
+    card->ports->headphones->available = FALSE;
+    card->ports->passthru_out->available = FALSE;
+
+    for (i = 0; i < info->n_ports; i++) {
+        port = info->ports[i];
+        g_message(" - Sink %i (%s)-> Port %s, available: %i", info->index, info->name, port->name, port->available);
+        if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_SPEAKER, -1)) != NULL &&
+            (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+            card->ports->speaker->available = TRUE;
+        } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_EARPIECE, -1)) != NULL&&
+            (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+            card->ports->earpiece->available = TRUE;
+        } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_HEADSET, -1)) != NULL &&
+            (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+            card->ports->headset->available = TRUE;
+        } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_HANDSET, -1)) != NULL &&
+            (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+            card->ports->earpiece->available = TRUE;
+        } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_HEADPHONES, -1)) != NULL &&
+            (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+            card->ports->headphones->available = TRUE;
+        } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_UNKNOWN_PLAYBACK, -1)) != NULL &&
+            (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+            card->ports->headset->available = TRUE;
+        } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_UNKNOWN_CAPTURE, -1)) != NULL &&
+            (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+            card->ports->headset->available = TRUE;
+        }  else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(MODEM_LOOPBACK_PLAYBACK, -1)) != NULL &&
+            (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+            card->ports->passthru_out->available = TRUE;
+        } 
+    }
     if (card->device_type == CAD_PULSE_DEVICE_TYPE_INTERNAL ) { // TODO: Doublecheck
-        /* 
-         * Note we can get here both from init_card_info or update_card_info
-         * Headphones/ headset could have been available earlier so we reset
-         * the availability state of all devices, and if they're still there
-         * we'll enable them again
-         */
-        card->ports->speaker->available = FALSE;
-        card->ports->earpiece->available = FALSE;
-        card->ports->headset->available = FALSE;
-        card->ports->headset->available = FALSE;
-        card->ports->headphones->available = FALSE;
-        card->ports->passthru_out->available = FALSE;
-
-        for (i = 0; i < info->n_ports; i++) {
-            port = info->ports[i];
-            g_message(" - Sink %i (%s)-> Port %s, available: %i", info->index, info->name, port->name, port->available);
-            if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_SPEAKER, -1)) != NULL &&
-                (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
-                card->ports->speaker->available = TRUE;
-            } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_EARPIECE, -1)) != NULL&&
-                (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
-                card->ports->earpiece->available = TRUE;
-            } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_HEADSET, -1)) != NULL &&
-                (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
-                card->ports->headset->available = TRUE;
-            } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_HANDSET, -1)) != NULL &&
-                (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
-                card->ports->earpiece->available = TRUE;
-            } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_HEADPHONES, -1)) != NULL &&
-                (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
-                card->ports->headphones->available = TRUE;
-            } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_UNKNOWN_PLAYBACK, -1)) != NULL &&
-                (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
-                card->ports->headset->available = TRUE;
-            } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_UNKNOWN_CAPTURE, -1)) != NULL &&
-                (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
-                card->ports->headset->available = TRUE;
-            }  else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(MODEM_LOOPBACK_PLAYBACK, -1)) != NULL &&
-                (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
-                card->ports->passthru_out->available = TRUE;
-            } 
-        }
-
         op = pa_context_set_default_sink(ctx, info->name, NULL, NULL);
         if (op)
             pa_operation_unref(op);
-
     }
     return;    
 }
@@ -395,6 +393,49 @@ static void update_card_info(pa_context *ctx, const pa_card_info *info, int eol,
     if (self->audio_mode != CALL_AUDIO_MODE_UNKNOWN)
         g_object_set(self->manager, "audio-mode", self->audio_mode, NULL);
 
+    for (i = 0; i < info->n_ports; i++) {
+        pa_card_port_info *port = info->ports[i];
+        g_message(" - Card port %s", port->name);
+        if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_SPEAKER, -1)) != NULL &&
+            (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+            this_card->ports->speaker->available = TRUE;
+        } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_EARPIECE, -1)) != NULL&&
+            (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+            this_card->ports->earpiece->available = TRUE;
+        } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_HEADSET, -1)) != NULL &&
+            (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+            this_card->ports->headset->available = TRUE;
+        } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_HANDSET, -1)) != NULL &&
+            (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+            this_card->ports->earpiece->available = TRUE;
+        } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_HEADPHONES, -1)) != NULL &&
+            (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+            this_card->ports->headphones->available = TRUE;
+        }  else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(MODEM_LOOPBACK_PLAYBACK, -1)) != NULL &&
+            (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+            this_card->ports->passthru_out->available = TRUE;
+            self->call_audio_external_needs_pass_thru = TRUE;
+        } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_HEADSET, -1)) != NULL &&
+            (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+            this_card->ports->headset_mic->available = TRUE;
+        } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_HEADPHONES, -1)) != NULL&&
+            (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+            this_card->ports->headphones_mic->available = TRUE;
+        } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_USE_CASE_DEV_MIC, -1)) != NULL &&
+            (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+            this_card->ports->primary_mic->available = TRUE;
+        } else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(MODEM_LOOPBACK_CAPTURE, -1)) != NULL &&
+            (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+            this_card->ports->passthru_in->available = TRUE;
+            self->call_audio_external_needs_pass_thru = TRUE;
+        }  else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_UNKNOWN_PLAYBACK, -1)) != NULL &&
+            (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+            this_card->ports->headphones->available = TRUE;
+        }    else if (strstr(g_ascii_strdown(port->name, -1), g_ascii_strdown(SND_UNKNOWN_CAPTURE, -1)) != NULL&&
+            (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
+            this_card->ports->headphones_mic->available = TRUE;
+        }
+    }
     // Set an invalid sink and source to be processed later
     // Sinks and sources change with every profile switch
     this_card->sink_id = -1;
@@ -483,6 +524,15 @@ static void init_card_info(pa_context *ctx, const pa_card_info *info, int eol, v
     
     g_message("Card %i: %s, friendly name %s", this_card->card_id, this_card->card_name, this_card->card_description);
     
+    prop = pa_proplist_gets(info->proplist, PA_PROP_DEVICE_FORM_FACTOR);
+    if (prop && strcmp(prop, CARD_FORM_FACTOR) == 0) {
+        g_message(" - Card form factor is internal");
+        this_card->device_type = CAD_PULSE_DEVICE_TYPE_INTERNAL;
+    } else {
+        g_message(" - Card form factor is external");
+        this_card->device_type = CAD_PULSE_DEVICE_TYPE_EXTERNAL;
+    }
+
     prop = pa_proplist_gets(info->proplist, "alsa.card_name");
     if (prop && strcmp(prop, CARD_MODEM_NAME) == 0) {
         g_message(" - Card %s is a modem", this_card->card_name);
@@ -511,15 +561,6 @@ static void init_card_info(pa_context *ctx, const pa_card_info *info, int eol, v
         this_card->device_type = CAD_PULSE_DEVICE_TYPE_USB;
     }
     
-    prop = pa_proplist_gets(info->proplist, PA_PROP_DEVICE_FORM_FACTOR);
-    if (prop && strcmp(prop, CARD_FORM_FACTOR) == 0) {
-        g_message(" - Card form factor is internal");
-        this_card->device_type = CAD_PULSE_DEVICE_TYPE_INTERNAL;
-    } else {
-        g_message(" - Card form factor is external");
-        this_card->device_type = CAD_PULSE_DEVICE_TYPE_EXTERNAL;
-    }
-
     for (i = 0; i < info->n_ports; i++) {
         pa_card_port_info *port = info->ports[i];
         g_message(" - Card port %s", port->name);
