@@ -152,7 +152,6 @@ static AudioCard *get_card(uint32_t card_id) {
 static void init_source_info(pa_context *ctx, const pa_source_info *info, int eol, void *data)
 {
     AudioCard *card;
-    pa_operation *op;
     CadPulse *self = cad_pulse_get_default();
     int i;
     if (eol == 0) { // It isnt the last one
@@ -211,12 +210,6 @@ static void init_source_info(pa_context *ctx, const pa_source_info *info, int eo
             (port->available == PA_PORT_AVAILABLE_UNKNOWN || port->available == PA_PORT_AVAILABLE_YES))  {
             card->ports->passthru_in->available = TRUE;
         } 
-    if (card->device_type == CAD_PULSE_DEVICE_TYPE_INTERNAL ) { // TODO: Doublecheck
-
-        op = pa_context_set_default_source(ctx, info->name, NULL, NULL);
-        if (op)
-            pa_operation_unref(op);
-        }
     }
 }
 
@@ -231,7 +224,6 @@ static void init_sink_info(pa_context *ctx, const pa_sink_info *info, int eol, v
 {
     AudioCard *card;
     pa_sink_port_info *port;
-    pa_operation *op;
     CadPulse *self = cad_pulse_get_default();
     int i;
     if (eol == 0) { // It isnt the last one
@@ -301,11 +293,6 @@ static void init_sink_info(pa_context *ctx, const pa_sink_info *info, int eol, v
             card->ports->passthru_out->available = TRUE;
         } 
     }
-    if (card->device_type == CAD_PULSE_DEVICE_TYPE_INTERNAL ) { // TODO: Doublecheck
-        op = pa_context_set_default_sink(ctx, info->name, NULL, NULL);
-        if (op)
-            pa_operation_unref(op);
-    }
     return;    
 }
 
@@ -319,8 +306,10 @@ static void init_sink_info(pa_context *ctx, const pa_sink_info *info, int eol, v
 static void sync_audio_mode_path(pa_context *c, int success, void *userdata) 
 {
     CadPulse *self = cad_pulse_get_default();
-    g_message("Trigger audio path sync");
-    cad_pulse_set_output(self->current_active_dev,self->current_active_verb, self->audio_mode);
+    if (self->audio_mode == CALL_AUDIO_MODE_CALL || self->audio_mode == CALL_AUDIO_MODE_SIP) {
+        g_message("Trigger audio path sync");
+        cad_pulse_set_output(self->current_active_dev,self->current_active_verb, self->audio_mode);
+    }
 
 }
 
