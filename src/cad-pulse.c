@@ -669,9 +669,8 @@ static void changed_cb(pa_context *ctx, pa_subscription_event_type_t type, uint3
                 g_message("Removing card %s", card->card_name);
                 self->total_external_cards--;
                 g_array_remove_index(self->cards, j);
-                op = pa_context_get_card_info_list(self->ctx, update_card_info, self);
-                if (op)
-                    pa_operation_unref(op);
+
+                cad_pulse_set_output(self->primary_card->card_id, CAD_PULSE_DEVICE_VERB_AUTO, self->audio_mode);
                 break;
             }
         } 
@@ -1012,14 +1011,13 @@ void cad_pulse_select_mode(CallAudioMode mode, CadOperation *cad_op)
                     g_message("** BT Handler: Switching %s to %s", card->card_description, PA_BT_PREFERRED_PROFILE);
                     set_card_profile(card->card_id, PA_BT_PREFERRED_PROFILE);
                 }
-                operation->pulse->current_active_dev = card->card_id;
-                operation->pulse->current_active_verb = CAD_PULSE_DEVICE_VERB_AUTO;
-            } else {
-                g_message("** Using primary card as an output");
-                operation->pulse->current_active_dev = operation->pulse->primary_card->card_id;
-                operation->pulse->current_active_verb = CAD_PULSE_DEVICE_VERB_EARPIECE;
             }
             
+            g_message("** Using primary card as an output");
+            operation->pulse->current_active_dev = operation->pulse->primary_card->card_id;
+            operation->pulse->current_active_verb = CAD_PULSE_DEVICE_VERB_EARPIECE;
+            cad_pulse_set_output(operation->pulse->primary_card->card_id, CAD_PULSE_DEVICE_VERB_EARPIECE, mode);
+
             break;
         default:
             g_critical("%s: Unknown operation requested: %u", __func__, operation->value);
@@ -1221,11 +1219,6 @@ void cad_pulse_set_output(uint32_t device_id, guint device_verb, guint audio_mod
     AudioCard *target_card = NULL;
     gchar *loopback_bt_source_arg, *loopback_int_source_arg;
     g_message("----->>> %s CALLED: Dev %u Verb %u Audio mode %u ", __func__, device_id, device_verb, audio_mode);
-
-    while (audio_mode != self->audio_mode) {
-        g_message("Waiting for audio_mode change to finish...");
-        sleep(1);
-    }
 
     if (!self->primary_card) {
         g_critical("Primary card not found, can't continue");
