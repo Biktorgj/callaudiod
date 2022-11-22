@@ -103,8 +103,6 @@ struct _CadPulse
     AudioCard *modem_card;
     uint32_t current_active_dev;
     guint current_active_verb;
-    gboolean syncing_sources;
-    gboolean syncing_sinks;
 };
 
 G_DEFINE_TYPE(CadPulse, cad_pulse, G_TYPE_OBJECT);
@@ -151,14 +149,10 @@ static AudioCard *get_card(uint32_t card_id) {
 static void init_source_info(pa_context *ctx, const pa_source_info *info, int eol, void *data)
 {
     AudioCard *card;
-    CadPulse *self = cad_pulse_get_default();
 
-    if (eol != 0) {
-        self->syncing_sources = FALSE;
+    if (eol != 0)
         return;
-    }
 
-    self->syncing_sources = TRUE;
     if (!info) {
         g_critical("PA returned no source info (eol=%d)", eol);
         return;
@@ -179,10 +173,11 @@ static void init_source_info(pa_context *ctx, const pa_source_info *info, int eo
     card->source_id = info->index;
     card->source_name = g_strdup(info->name);
 
-    card->ports->primary_mic->available = FALSE;
     card->ports->headset_mic->available = FALSE;
     card->ports->headphones_mic->available = FALSE;
+    card->ports->primary_mic->available = FALSE;
     card->ports->passthru_in->available = FALSE;
+
     for (int i = 0; i < info->n_ports; i++) {
         pa_source_port_info *port = info->ports[i];
         g_message(" - Source %i (%s)-> Port %s, available: %i", info->index, info->name, port->name, port->available);
@@ -218,14 +213,10 @@ static void init_source_info(pa_context *ctx, const pa_source_info *info, int eo
 static void init_sink_info(pa_context *ctx, const pa_sink_info *info, int eol, void *data)
 {
     AudioCard *card;
-    CadPulse *self = cad_pulse_get_default();
 
-    if (eol != 0) {
-        self->syncing_sinks = FALSE;
+    if (eol != 0)
         return;
-    }
 
-    self->syncing_sinks = TRUE;
     if (!info) {
         g_critical("PA returned no sink info (eol=%d)", eol);
         return;
@@ -249,7 +240,6 @@ static void init_sink_info(pa_context *ctx, const pa_sink_info *info, int eol, v
         */
     card->ports->speaker->available = FALSE;
     card->ports->earpiece->available = FALSE;
-    card->ports->headset->available = FALSE;
     card->ports->headset->available = FALSE;
     card->ports->headphones->available = FALSE;
     card->ports->passthru_out->available = FALSE;
@@ -297,15 +287,12 @@ static void sync_audio_mode_path(pa_context *c, int success, void *userdata)
 {
     pa_operation *op;
     CadPulse *self = cad_pulse_get_default();
-    int retries = 10;
 
     if (success) {
         g_message("Profile change succeeded");
     } else {
         g_message("Profile change failed");
     }
-    self->syncing_sinks = TRUE;
-    self->syncing_sources = TRUE;
     /* Every time we switch profiles our sink and source IDs change!*/
     op = pa_context_get_sink_info_list(self->ctx, init_sink_info, self);
     if (op)
@@ -315,11 +302,6 @@ static void sync_audio_mode_path(pa_context *c, int success, void *userdata)
     if (op)
         pa_operation_unref(op);
     
-    while((self->syncing_sinks || self->syncing_sources) && retries >0) {
-        g_message("WAITING: Trigger audio path sync: %i", retries);
-        sleep(0.5);
-        retries--;
-    }
     g_message("DOING: Trigger audio path sync");
     cad_pulse_set_output(self->current_active_dev,self->current_active_verb, self->audio_mode);
 
@@ -335,50 +317,6 @@ static void set_card_profile(uint32_t card_id, gchar *card_profile)
                                         sync_audio_mode_path, NULL);
     if (op)
         pa_operation_unref(op);
-
-}
-
-static void update_card_info(pa_context *ctx, const pa_card_info *info, int eol, void *data)
-{
-    CadPulse *self = data;
-    AudioCard *this_card = NULL;
-    pa_operation *op;
-    if (eol != 0 ) {
-        if (!self->primary_card) {
-            g_critical("No primary card found, retrying in 3s...");
-            g_timeout_add_seconds(3, G_SOURCE_FUNC(init_pulseaudio_objects), self);
-        }
-        return;
-    }
-   
-    if (!info) {
-        g_critical("%s: PA returned no card info (eol=%d)", __func__, eol);
-        return;
-    }
-
-    this_card = get_card(info->index);
-
-    if (!this_card) {
-        g_message("Error retrieving card configuration (card id %i)", info->index);
-        return;
-    }
-
-    g_message("Card %i updated (%s)", this_card->card_id, this_card->card_description);
-    
-    // Set an invalid sink and source to be processed later
-    // Sinks and sources change with every profile switch
-    this_card->sink_id = -1;
-    this_card->source_id = -1;
-
-    op = pa_context_get_sink_info_list(self->ctx, init_sink_info, self);
-    if (op)
-        pa_operation_unref(op);
-    op = pa_context_get_source_info_list(self->ctx, init_source_info, self);
-    if (op)
-        pa_operation_unref(op);
-
-    if (self->audio_mode !=CALL_AUDIO_MODE_DEFAULT)
-        g_object_set(self->manager, "available-devices", cad_pulse_get_available_devices(), NULL);
 
 }
 
@@ -591,6 +529,7 @@ static void init_card_info(pa_context *ctx, const pa_card_info *info, int eol, v
   if (self->audio_mode != CALL_AUDIO_MODE_DEFAULT)
     g_object_set(self->manager, "available-devices", cad_pulse_get_available_devices(), NULL);
 }
+
 /******************************************************************************
  * PulseAudio management
  *
@@ -867,6 +806,7 @@ static void operation_complete_cb(pa_context *ctx, int success, void *data)
                         operation->pulse->audio_mode = new_value;
                         g_object_set(operation->pulse->manager, "audio-mode", new_value, NULL);
                     }
+                    
                     cad_pulse_set_output(operation->pulse->current_active_dev, operation->pulse->current_active_verb, new_value);
 
                     break;
@@ -1247,11 +1187,12 @@ void cad_pulse_set_output(uint32_t device_id, guint device_verb, guint audio_mod
         }
     }
 
-    if (!target_card) {
-        g_critical("Couldn't find the target card, reverting to the primary card");
+    if (!target_card || target_card->sink_id < 0 || target_card->source_id < 0) {
+        g_critical("[WARNING] Couldn't find the target card, or the card doesn't have a usable sink/source");
         device_id = self->primary_card->card_id;
         target_card = self->primary_card;
         device_verb = CAD_PULSE_DEVICE_VERB_AUTO;
+        g_message("[WARNING] Reverted to primary card / AUTO output");
     }
 
     if (device_verb == CAD_PULSE_DEVICE_VERB_AUTO) {
