@@ -29,8 +29,8 @@
 #define CARD_MODEM_CLASS "modem"
 #define CARD_MODEM_NAME "Modem"
 #define CARD_MODEM_ALT_NAME "LTE"
+#define CARD_EXTERNAL_USB_NAME "USB"
 #define PA_BT_DRIVER "module-bluez5-device.c"
-#define PA_USB_DRIVER "snd_usb_audio"
 #define PA_BT_PREFERRED_PROFILE "handsfree_head_unit"
 #define PA_BT_A2DP_PROFILE "a2dp_sink"
 
@@ -405,16 +405,18 @@ static void init_card_info(pa_context *ctx, const pa_card_info *info, int eol, v
         g_message(" - Card %s is a modem", this_card->card_name);
         this_card->device_type = CAD_PULSE_DEVICE_TYPE_MODEM;
     }
+    
+    prop = pa_proplist_gets(info->proplist, "alsa.card_name");
+    if (prop && strstr(prop, CARD_EXTERNAL_USB_NAME) != NULL) {
+        g_message(" - Card %s is USB", this_card->card_name);
+        this_card->device_type = CAD_PULSE_DEVICE_TYPE_USB;
+    }
 
     if (strcmp(info->driver, PA_BT_DRIVER) == 0) {
         g_message(" - Card %s is a bluetooth device", this_card->card_name);
         this_card->device_type = CAD_PULSE_DEVICE_TYPE_BT;
     }
 
-    if (strcmp(info->driver, PA_USB_DRIVER) == 0) {
-        g_message(" - Card %s is a USB device", this_card->card_name);
-        this_card->device_type = CAD_PULSE_DEVICE_TYPE_USB;
-    }
     
     for (i = 0; i < info->n_ports; i++) {
         pa_card_port_info *port = info->ports[i];
@@ -955,8 +957,8 @@ void cad_pulse_select_mode(CallAudioMode mode, CadOperation *cad_op)
             
             g_message("** Using primary card as an output");
             operation->pulse->current_active_dev = operation->pulse->primary_card->card_id;
-            operation->pulse->current_active_verb = CAD_PULSE_DEVICE_VERB_EARPIECE;
-            cad_pulse_set_output(operation->pulse->primary_card->card_id, CAD_PULSE_DEVICE_VERB_EARPIECE, mode);
+            operation->pulse->current_active_verb = CAD_PULSE_DEVICE_VERB_AUTO;
+            cad_pulse_set_output(operation->pulse->primary_card->card_id, CAD_PULSE_DEVICE_VERB_AUTO, mode);
 
             break;
         default:
@@ -1078,7 +1080,6 @@ GVariant *cad_pulse_get_available_devices(void)
     AudioCard * card;
     GVariant *devices;
     GVariantBuilder *device;
-    guint device_type = 0;
     device = g_variant_builder_new(G_VARIANT_TYPE("a(buuus)"));
 
     if (!self->primary_card) {
@@ -1090,26 +1091,26 @@ GVariant *cad_pulse_get_available_devices(void)
         tmpcard = g_strdup_printf("Earpiece");
         g_variant_builder_add(device, "(buuus)", 
                             is_dev_active(self->primary_card->card_id, CAD_PULSE_DEVICE_VERB_EARPIECE), 
-                            self->primary_card->card_id, device_type, CAD_PULSE_DEVICE_VERB_EARPIECE, tmpcard);
+                            self->primary_card->card_id, 0, CAD_PULSE_DEVICE_VERB_EARPIECE, tmpcard);
     }
     if (self->primary_card->ports->headset->available) {
         tmpcard = g_strdup_printf("Headset");
         g_variant_builder_add(device, "(buuus)", 
                             is_dev_active(self->primary_card->card_id, CAD_PULSE_DEVICE_VERB_HEADSET), 
-                            self->primary_card->card_id, device_type, CAD_PULSE_DEVICE_VERB_HEADSET, tmpcard);
+                            self->primary_card->card_id, 0, CAD_PULSE_DEVICE_VERB_HEADSET, tmpcard);
    }
     if (self->primary_card->ports->speaker->available) {
         tmpcard =  g_strdup_printf("Speaker");
         g_variant_builder_add(device, "(buuus)", 
                             is_dev_active(self->primary_card->card_id, CAD_PULSE_DEVICE_VERB_SPEAKER), 
-                            self->primary_card->card_id, device_type, CAD_PULSE_DEVICE_VERB_SPEAKER, tmpcard);
+                            self->primary_card->card_id, 0, CAD_PULSE_DEVICE_VERB_SPEAKER, tmpcard);
  
     }
     if (self->primary_card->ports->headphones->available) {
        tmpcard = g_strdup_printf("Headphones");
         g_variant_builder_add(device, "(buuus)", 
                             is_dev_active(self->primary_card->card_id, CAD_PULSE_DEVICE_VERB_HEADPHONES), 
-                            self->primary_card->card_id, device_type, CAD_PULSE_DEVICE_VERB_HEADPHONES, tmpcard);
+                            self->primary_card->card_id, 0, CAD_PULSE_DEVICE_VERB_HEADPHONES, tmpcard);
     } 
 
     for (int i = 0; i < self->total_external_cards; i++) {
@@ -1118,34 +1119,30 @@ GVariant *cad_pulse_get_available_devices(void)
             g_message("Card disappeared!");
             break;
         }
-        if (card->device_type == CAD_PULSE_DEVICE_TYPE_BT) {
-            device_type = 1;
-        } else if (card->device_type == CAD_PULSE_DEVICE_TYPE_USB) {
-            device_type = 2;
-        }
+
         if (card->ports->earpiece->available) {
             tmpcard =  g_strdup_printf("%s: Earpiece", card->card_description);
             g_variant_builder_add(device, "(buuus)", 
                                 is_dev_active(card->card_id, CAD_PULSE_DEVICE_VERB_EARPIECE), 
-                                card->card_id, device_type, CAD_PULSE_DEVICE_VERB_EARPIECE, tmpcard);
+                                card->card_id, card->device_type, CAD_PULSE_DEVICE_VERB_EARPIECE, tmpcard);
         }
         if (card->ports->headset->available) {
             tmpcard =    g_strdup_printf("%s: Headset", card->card_description);
             g_variant_builder_add(device, "(buuus)", 
                                 is_dev_active(card->card_id, CAD_PULSE_DEVICE_VERB_HEADSET), 
-                                card->card_id, device_type, CAD_PULSE_DEVICE_VERB_HEADSET, tmpcard);
+                                card->card_id, card->device_type, CAD_PULSE_DEVICE_VERB_HEADSET, tmpcard);
         }
         if (card->ports->speaker->available) {
             tmpcard =   g_strdup_printf("%s: Speaker", card->card_description);
             g_variant_builder_add(device, "(buuus)", 
                                 is_dev_active(card->card_id, CAD_PULSE_DEVICE_VERB_SPEAKER), 
-                                card->card_id, device_type, CAD_PULSE_DEVICE_VERB_SPEAKER, tmpcard);
+                                card->card_id, card->device_type, CAD_PULSE_DEVICE_VERB_SPEAKER, tmpcard);
         }
         if (card->ports->headphones->available) {
             tmpcard =  g_strdup_printf("%s: Headphones", card->card_description);
             g_variant_builder_add(device, "(buuus)", 
                                 is_dev_active(card->card_id, CAD_PULSE_DEVICE_VERB_HEADPHONES), 
-                                card->card_id, device_type, CAD_PULSE_DEVICE_VERB_HEADPHONES, tmpcard);
+                                card->card_id, card->device_type, CAD_PULSE_DEVICE_VERB_HEADPHONES, tmpcard);
         }
     }
     devices = g_variant_new("a(buuus)", device);
@@ -1158,7 +1155,6 @@ void cad_pulse_set_output(uint32_t device_id, guint device_verb, guint audio_mod
     pa_operation *op = NULL;
     AudioCard *target_card = NULL;
     gchar *loopback_bt_source_arg, *loopback_int_source_arg;
-    g_message("----->>> %s CALLED: Dev %u Verb %u Audio mode %u ", __func__, device_id, device_verb, audio_mode);
 
     if (!self->primary_card) {
         g_critical("Primary card not found, can't continue");
@@ -1198,12 +1194,12 @@ void cad_pulse_set_output(uint32_t device_id, guint device_verb, guint audio_mod
     if (device_verb == CAD_PULSE_DEVICE_VERB_AUTO) {
         switch (audio_mode) {
             case CALL_AUDIO_MODE_DEFAULT:
-                if (target_card->ports->speaker->available) {
-                    device_verb = CAD_PULSE_DEVICE_VERB_SPEAKER;
-                } else if (target_card->ports->headphones->available) {
+                if (target_card->ports->headphones->available) {
                     device_verb = CAD_PULSE_DEVICE_VERB_HEADPHONES;
                 } else if (target_card->ports->headset->available) {
                     device_verb = CAD_PULSE_DEVICE_VERB_HEADSET;
+                } else if (target_card->ports->speaker->available) {
+                    device_verb = CAD_PULSE_DEVICE_VERB_SPEAKER;
                 } else {
                     g_message("No port to setup in auto mode");
                 }
@@ -1211,12 +1207,12 @@ void cad_pulse_set_output(uint32_t device_id, guint device_verb, guint audio_mod
             case CALL_AUDIO_MODE_CALL:
             /* Fall through */
             case CALL_AUDIO_MODE_SIP:
-                if (target_card->ports->earpiece->available) {
-                    device_verb = CAD_PULSE_DEVICE_VERB_EARPIECE;
-                } else if (target_card->ports->headset->available) {
+                if (target_card->ports->headset->available) {
                     device_verb = CAD_PULSE_DEVICE_VERB_HEADSET;
                 } else if (target_card->ports->headphones->available) {
                     device_verb = CAD_PULSE_DEVICE_VERB_HEADPHONES;
+                } else if (target_card->ports->earpiece->available) {
+                    device_verb = CAD_PULSE_DEVICE_VERB_EARPIECE;
                 } else if (target_card->ports->speaker->available) {
                     device_verb = CAD_PULSE_DEVICE_VERB_SPEAKER;
                 } else {
@@ -1234,7 +1230,7 @@ void cad_pulse_set_output(uint32_t device_id, guint device_verb, guint audio_mod
   
     switch (device_verb) {
         case CAD_PULSE_DEVICE_VERB_EARPIECE: // Earpiece / Handset
-            g_message("Primary card: Earpiece %s",target_card->ports->earpiece->port);
+            g_message("%s: %s",target_card->card_description, target_card->ports->earpiece->port);
             op = pa_context_set_sink_port_by_index(self->ctx, target_card->sink_id,
                                             target_card->ports->earpiece->port,
                                             NULL, NULL);
@@ -1247,7 +1243,7 @@ void cad_pulse_set_output(uint32_t device_id, guint device_verb, guint audio_mod
             self->current_active_verb = device_verb;
             break;
         case CAD_PULSE_DEVICE_VERB_HEADSET: // Headset
-            g_message("Target card: Headset: %s", target_card->ports->headset->port);
+            g_message("%s: %s",target_card->card_description, target_card->ports->earpiece->port);
             op = pa_context_set_sink_port_by_index(self->ctx, target_card->sink_id,
                                             target_card->ports->headset->port,
                                             NULL, NULL);
@@ -1260,7 +1256,7 @@ void cad_pulse_set_output(uint32_t device_id, guint device_verb, guint audio_mod
             self->current_active_verb = device_verb;
             break;
         case CAD_PULSE_DEVICE_VERB_SPEAKER: // Speaker
-            g_message("Target card: Speaker%s",target_card->ports->speaker->port);
+            g_message("%s: %s",target_card->card_description, target_card->ports->earpiece->port);
             op = pa_context_set_sink_port_by_index(self->ctx, target_card->sink_id,
                                             target_card->ports->speaker->port,
                                             NULL, NULL);
@@ -1274,7 +1270,7 @@ void cad_pulse_set_output(uint32_t device_id, guint device_verb, guint audio_mod
             break;
         case CAD_PULSE_DEVICE_VERB_HEADPHONES: // Headphones: Shall we use the primary or headset mic here?
             // Not all headsets might be detected as headsets...
-            g_message("Target card: Heaphones %s",target_card->ports->headphones->port);
+            g_message("%s: %s",target_card->card_description, target_card->ports->earpiece->port);
             op = pa_context_set_sink_port_by_index(self->ctx, target_card->sink_id,
                                     target_card->ports->headphones->port,
                                     NULL, NULL);
